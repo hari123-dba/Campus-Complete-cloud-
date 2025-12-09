@@ -3,11 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="https://picsum.photos/64/64" />
+    <link rel="apple-touch-icon" href="https://picsum.photos/192/192" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#0f172a" />
     <meta name="description" content="Campus Complete - University Competition & Project Management" />
+    
+    <!-- iOS Native App Capability -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="CompeteHub" />
+    <meta name="format-detection" content="telephone=no" />
+    
     <title>Campus Complete</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="manifest" href="/manifest.json" />
@@ -16,9 +22,35 @@
       .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
       .pt-safe { padding-top: env(safe-area-inset-top); }
       .h-safe-screen { height: 100vh; height: 100dvh; }
+      
       /* Hide scrollbar for clean UI */
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+      /* NATIVE APP FEEL OPTIMIZATIONS */
+      html, body {
+        /* Prevent pull-to-refresh / rubber-banding on mobile */
+        overscroll-behavior-y: none;
+        /* Remove gray tap highlight box on iOS */
+        -webkit-tap-highlight-color: transparent;
+        /* Prevent text selection on UI mostly */
+        -webkit-user-select: none;
+        user-select: none;
+        /* Prevent long-press context menus */
+        -webkit-touch-callout: none;
+      }
+
+      /* Re-enable text selection for content inputs */
+      input, textarea, [contenteditable], .selectable-text {
+        -webkit-user-select: text;
+        user-select: text;
+        -webkit-touch-callout: default;
+      }
+      
+      /* Smooth scrolling for internal links */
+      html {
+        scroll-behavior: smooth;
+      }
     </style>
   <script type="importmap">
 {
@@ -42,7 +74,23 @@
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/service-worker.js')
-            .then(reg => console.log('SW registered:', reg))
+            .then(reg => {
+               console.log('SW registered: ', reg);
+               // Check for updates
+               reg.onupdatefound = () => {
+                 const installingWorker = reg.installing;
+                 if (installingWorker == null) return;
+                 installingWorker.onstatechange = () => {
+                   if (installingWorker.state === 'installed') {
+                     if (navigator.serviceWorker.controller) {
+                       console.log('New content is available; please refresh.');
+                     } else {
+                       console.log('Content is cached for offline use.');
+                     }
+                   }
+                 };
+               };
+            })
             .catch(err => console.log('SW registration failed:', err));
         });
       }

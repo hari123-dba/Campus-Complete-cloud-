@@ -94,6 +94,12 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setError(null);
 
     // Validation
+    if (!selectedCollege) {
+      setError("Please select an institution.");
+      setIsLoading(false);
+      return;
+    }
+
     if (!formData.firstName || !formData.lastName || !formData.uniqueId || !formData.phoneNumber || !formData.email || !formData.password) {
       setError("Please fill in all required basic fields.");
       setIsLoading(false);
@@ -158,22 +164,24 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           <p className="text-slate-500 text-center mt-1">Project & Competition Manager</p>
         </div>
 
-        {/* College Selector */}
-        <div className="mb-6">
-          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Select Institution</label>
-          <div className="relative">
-            <School className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <select 
-              value={selectedCollege} 
-              onChange={(e) => setSelectedCollege(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-medium appearance-none cursor-pointer"
-            >
-              {colleges.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+        {/* College Selector (Global - Visible for Demo/Login) */}
+        {activeTab !== 'signup' && (
+          <div className="mb-6">
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Select Institution</label>
+            <div className="relative">
+              <School className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+              <select 
+                value={selectedCollege} 
+                onChange={(e) => setSelectedCollege(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-medium appearance-none cursor-pointer"
+              >
+                {colleges.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Auth Tabs */}
         <div className="flex p-1 bg-slate-100 rounded-xl mb-6">
@@ -267,7 +275,26 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         {activeTab === 'signup' && (
           <form onSubmit={handleSignup} className="space-y-4 animate-fade-in max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
             
-            {/* Role Selection First */}
+            {/* Institution Selector for Signup */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Institution</label>
+              <div className="relative">
+                <School className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                <select 
+                  required
+                  value={selectedCollege} 
+                  onChange={(e) => setSelectedCollege(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-medium appearance-none cursor-pointer"
+                >
+                  <option value="" disabled>Select College</option>
+                  {colleges.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Role Selection */}
              <div className="mb-4">
               <label className="block text-sm font-medium text-slate-700 mb-1">I am a...</label>
               <select 
