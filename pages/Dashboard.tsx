@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, UserRole, ProjectPhase, College, ActivityLog } from '../types';
 import { getDataForUser, getPendingUsers, approveUser, rejectUser, registerUser, addCollege, getColleges, updateCollegeStatus, removeCollege, getAllUsers, getSystemLogs } from '../services/dataService';
 import { 
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell 
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend, LineChart, Line, CartesianGrid
 } from 'recharts';
 import { 
   Clock, TrendingUp, AlertCircle, CheckCircle2, UserCheck, XCircle, 
   School, UserPlus, X, Loader2, Shield, Users, Trophy, Award,
-  FileText, Activity, Settings, BarChart2, UserCog, Ban, Power, Trash2, Building2 
+  FileText, Activity, Settings, BarChart2, UserCog, Ban, Power, Trash2, Building2, FolderKanban 
 } from 'lucide-react';
 import { DEPARTMENTS } from '../constants';
 import { formatDistanceToNow } from 'date-fns'; // Note: You might need to add date-fns if not present, but for now we'll implement simple time calc
@@ -38,9 +38,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const [pendingUsers, setPendingUsers] = useState<User[]>([]);
   const [processedIds, setProcessedIds] = useState<string[]>([]);
   
-  // Admin: Add User / College States
+  // Admin: Add User / College / Analytics States
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showAddCollegeModal, setShowAddCollegeModal] = useState(false);
+  const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
+
   const [newUserForm, setNewUserForm] = useState({ 
     firstName: '', lastName: '', email: '', uniqueId: '', phoneNumber: '', role: UserRole.STUDENT, department: '', collegeId: ''
   });
@@ -166,6 +168,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     }
   };
 
+  // --- ANALYTICS DATA PREPARATION ---
+  const analyticsData = useMemo(() => {
+    if (user.role !== UserRole.ADMIN) return null;
+
+    // 1. Role Distribution
+    const roleStats = [
+      { name: 'Students', value: allSystemUsers.filter(u => u.role === UserRole.STUDENT).length, color: '#f97316' },
+      { name: 'Lecturers', value: allSystemUsers.filter(u => u.role === UserRole.LECTURER).length, color: '#22c55e' },
+      { name: 'HODs', value: allSystemUsers.filter(u => u.role === UserRole.HOD).length, color: '#a855f7' },
+      { name: 'Principals', value: allSystemUsers.filter(u => u.role === UserRole.PRINCIPAL).length, color: '#eab308' },
+      { name: 'Admins', value: allSystemUsers.filter(u => u.role === UserRole.ADMIN).length, color: '#ef4444' },
+    ].filter(i => i.value > 0);
+
+    // 2. Project Phases
+    const projectPhaseStats = [
+      { name: 'Design', value: projects.filter(p => p.phase === ProjectPhase.DESIGN).length },
+      { name: 'Dev', value: projects.filter(p => p.phase === ProjectPhase.DEVELOPMENT).length },
+      { name: 'Test', value: projects.filter(p => p.phase === ProjectPhase.TESTING).length },
+      { name: 'Deploy', value: projects.filter(p => p.phase === ProjectPhase.IMPLEMENTATION).length },
+    ];
+
+    // 3. College Activity (Top 5 by User Count)
+    const collegeStats = collegeList.map(c => ({
+      name: c.name,
+      users: allSystemUsers.filter(u => u.collegeId === c.id).length
+    })).sort((a, b) => b.users - a.users).slice(0, 5);
+
+    // 4. System Health (Logs)
+    const logStats = [
+      { name: 'Healthy', value: systemLogs.filter(l => l.type === 'success' || l.type === 'info').length, color: '#22c55e' },
+      { name: 'Issues', value: systemLogs.filter(l => l.type === 'error' || l.type === 'critical').length, color: '#ef4444' },
+      { name: 'Warnings', value: systemLogs.filter(l => l.type === 'warning').length, color: '#eab308' },
+    ].filter(i => i.value > 0);
+
+    return { roleStats, projectPhaseStats, collegeStats, logStats };
+  }, [allSystemUsers, projects, collegeList, systemLogs, user.role]);
+
+
   const activeCompetitions = competitions.filter(c => c.status === 'Ongoing').length;
   const pendingProjects = projects.filter(p => p.phase !== ProjectPhase.IMPLEMENTATION).length;
   
@@ -264,7 +304,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
               <button onClick={() => setShowAddCollegeModal(true)} className="flex items-center justify-center gap-2 p-4 bg-orange-50 text-orange-700 rounded-xl font-semibold hover:bg-orange-100 transition-colors">
                  <School size={20} /> Add College
               </button>
-              <button className="flex items-center justify-center gap-2 p-4 bg-green-50 text-green-700 rounded-xl font-semibold hover:bg-green-100 transition-colors">
+              <button onClick={() => setShowAnalyticsModal(true)} className="flex items-center justify-center gap-2 p-4 bg-green-50 text-green-700 rounded-xl font-semibold hover:bg-green-100 transition-colors">
                  <BarChart2 size={20} /> Analytics
               </button>
            </div>
@@ -369,6 +409,142 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
               </div>
            </div>
         </div>
+
+        {/* Analytics Modal */}
+        {showAnalyticsModal && analyticsData && (
+           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+              <div className="bg-slate-50 w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl flex flex-col">
+                 
+                 {/* Header */}
+                 <div className="p-6 bg-white border-b border-slate-200 sticky top-0 z-10 flex justify-between items-center rounded-t-3xl">
+                    <div className="flex items-center gap-3">
+                       <div className="p-2 bg-green-100 text-green-700 rounded-xl">
+                          <BarChart2 size={24} />
+                       </div>
+                       <div>
+                          <h2 className="text-xl font-bold text-slate-900">System Analytics</h2>
+                          <p className="text-sm text-slate-500">Real-time data insights & metrics</p>
+                       </div>
+                    </div>
+                    <button onClick={() => setShowAnalyticsModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                       <X size={24} className="text-slate-400" />
+                    </button>
+                 </div>
+
+                 {/* Content */}
+                 <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    
+                    {/* User Distribution */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                       <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+                          <Users size={18} className="text-blue-500" /> User Role Distribution
+                       </h3>
+                       <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                             <PieChart>
+                                <Pie 
+                                   data={analyticsData.roleStats} 
+                                   innerRadius={60} 
+                                   outerRadius={80} 
+                                   paddingAngle={5} 
+                                   dataKey="value"
+                                >
+                                   {analyticsData.roleStats.map((entry, index) => (
+                                      <Cell key={`cell-${index}`} fill={entry.color} />
+                                   ))}
+                                </Pie>
+                                <Tooltip contentStyle={{borderRadius: '8px', border:'none', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}} />
+                                <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                             </PieChart>
+                          </ResponsiveContainer>
+                       </div>
+                    </div>
+
+                    {/* Project Pipeline */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                       <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+                          <FolderKanban size={18} className="text-orange-500" /> Project Pipeline
+                       </h3>
+                       <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                             <BarChart data={analyticsData.projectPhaseStats} layout="vertical" margin={{left: 20}}>
+                                <XAxis type="number" hide />
+                                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} width={80} />
+                                <Tooltip cursor={{fill: 'transparent'}} contentStyle={{borderRadius: '8px', border:'none'}} />
+                                <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} />
+                             </BarChart>
+                          </ResponsiveContainer>
+                       </div>
+                    </div>
+
+                    {/* System Health */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                       <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+                          <Activity size={18} className="text-red-500" /> System Log Health
+                       </h3>
+                       <div className="flex flex-col md:flex-row items-center gap-6">
+                          <div className="h-48 w-48">
+                             <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                   <Pie 
+                                      data={analyticsData.logStats} 
+                                      innerRadius={40} 
+                                      outerRadius={60} 
+                                      dataKey="value"
+                                   >
+                                      {analyticsData.logStats.map((entry, index) => (
+                                         <Cell key={`cell-${index}`} fill={entry.color} />
+                                      ))}
+                                   </Pie>
+                                </PieChart>
+                             </ResponsiveContainer>
+                          </div>
+                          <div className="flex-1 space-y-3">
+                             {analyticsData.logStats.map((stat) => (
+                                <div key={stat.name} className="flex items-center justify-between">
+                                   <div className="flex items-center gap-2">
+                                      <span className="w-3 h-3 rounded-full" style={{backgroundColor: stat.color}}></span>
+                                      <span className="text-sm font-medium text-slate-700">{stat.name}</span>
+                                   </div>
+                                   <span className="font-bold text-slate-900">{stat.value}</span>
+                                </div>
+                             ))}
+                          </div>
+                       </div>
+                    </div>
+
+                    {/* Top Colleges */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                       <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+                          <Award size={18} className="text-yellow-500" /> Top Institutions
+                       </h3>
+                       <div className="space-y-4">
+                          {analyticsData.collegeStats.length > 0 ? analyticsData.collegeStats.map((college, idx) => (
+                             <div key={college.name} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                                <div className="flex items-center gap-3">
+                                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-200 text-slate-600'}`}>
+                                      #{idx + 1}
+                                   </div>
+                                   <span className="text-sm font-medium text-slate-800 truncate max-w-[150px]">{college.name}</span>
+                                </div>
+                                <span className="text-xs font-bold bg-white border border-slate-200 px-2 py-1 rounded-md">{college.users} Users</span>
+                             </div>
+                          )) : (
+                             <p className="text-sm text-slate-400 italic">No college data available.</p>
+                          )}
+                       </div>
+                    </div>
+
+                 </div>
+
+                 <div className="p-6 bg-slate-50 rounded-b-3xl border-t border-slate-200 flex justify-end">
+                    <button onClick={() => setShowAnalyticsModal(false)} className="px-6 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold rounded-xl transition-colors">
+                       Close Report
+                    </button>
+                 </div>
+              </div>
+           </div>
+        )}
 
         {showAddUserModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
