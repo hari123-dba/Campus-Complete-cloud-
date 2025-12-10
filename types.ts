@@ -104,7 +104,10 @@ export interface ActivityLog {
   action: string;
   details: string;
   timestamp: string; // ISO String
-  type: 'info' | 'success' | 'warning' | 'error';
+  type: 'info' | 'success' | 'warning' | 'error' | 'critical';
+  // Enhanced monitoring fields
+  metadata?: Record<string, any>;
+  ipAddress?: string;
 }
 
 export interface AuthState {

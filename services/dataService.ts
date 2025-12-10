@@ -83,13 +83,19 @@ const saveToLocal = (key: string, data: any) => {
   localStorage.setItem(`cc_${key}`, JSON.stringify(data));
 };
 
-const logActivity = async (actor: User | null, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+const logActivity = async (actor: User | null, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' | 'critical' = 'info') => {
   const newLog: ActivityLog = {
     id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
     actorId: actor?.id || 'system',
     actorName: actor?.name || 'System',
     action,
     details,
+    metadata: {
+      userAgent: navigator.userAgent,
+      path: window.location.pathname,
+      platform: navigator.platform
+    },
+    ipAddress: '127.0.0.1', // Placeholder for frontend; actual IP would be captured by backend middleware
     timestamp: new Date().toISOString(),
     type
   };
