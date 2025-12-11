@@ -180,8 +180,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     const totalStudents = collegeUsers.filter(u => u.role === UserRole.STUDENT).length;
 
     return {
-      departments: uniqueDepts || 8, // Fallback for visual demo if data is empty
-      students: totalStudents || 1089, // Fallback for visual demo if data is empty
+      departments: uniqueDepts,
+      students: totalStudents,
     };
   }, [allSystemUsers, user.role, user.collegeId]);
 
