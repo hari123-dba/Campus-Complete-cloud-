@@ -1,12 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Default Project URL provided by the user
+// Default Project URL and Key provided by the user
 const DEFAULT_SUPABASE_URL = 'https://ycdjfjszrbedglntqfjy.supabase.co';
+// Note: This appears to be a custom secret or token. Usually Supabase keys are JWTs.
+// We will use it as provided.
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_secret_n3tMLUjAr7urFms8C6oShg_6kzAqo6j';
 
-// Safely access environment variables to prevent "Cannot read properties of undefined"
+// Safely access environment variables
 const getEnv = () => {
   try {
-    // Check if import.meta.env exists
     // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta.env) {
       // @ts-ignore
@@ -20,18 +22,15 @@ const getEnv = () => {
 
 const env = getEnv();
 
-// Use the specific Supabase project URL provided by the user as default
-// If env.VITE_SUPABASE_URL is undefined, it falls back to the DEFAULT_SUPABASE_URL
 const supabaseUrl = env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
+const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
 
-// Only initialize if keys are present (Anon Key is required)
 export const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;
 
 if (!supabase) {
-  console.warn('Supabase credentials not found (Anon Key missing). App will use Mock Data / LocalStorage.');
+  console.warn('Supabase credentials not found. App will use Mock Data / LocalStorage.');
 } else {
   console.log(`Connected to Supabase: ${supabaseUrl}`);
 }

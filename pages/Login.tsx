@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole, College } from '../types';
 import { RoleCard } from '../components/RoleCard';
-import { login } from '../services/authService';
-import { registerUser, getColleges, resetDatabase } from '../services/dataService';
-import { Trophy, AlertCircle, Loader2, School, LogIn, UserPlus, Info, RefreshCw } from 'lucide-react';
+import { login, signInWithGoogle } from '../services/authService';
+import { registerUser, getColleges, resetDatabase, getAllUsers } from '../services/dataService';
+import { Trophy, AlertCircle, Loader2, School, LogIn, UserPlus, Info, RefreshCw, Chrome } from 'lucide-react';
 import { PWAInstallPrompt } from '../components/PWAInstallPrompt';
 import { DEPARTMENTS, ACADEMIC_YEARS } from '../constants';
+import { supabase } from '../lib/supabase';
 
 interface LoginProps {
   onLoginSuccess: (user: any) => void;
@@ -39,7 +40,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
-  // Initial Data Load
+  // Initial Data Load & Auth Check
   useEffect(() => {
     const loadedColleges = getColleges();
     setColleges(loadedColleges);
@@ -50,8 +51,44 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       if (!isValid || !selectedCollege) {
         setSelectedCollege(loadedColleges[0].id);
       }
+      
+      // Check for returning Supabase Auth Session
+      checkSupabaseAuth();
     }
-  }, [selectedCollege]); // Depend on selectedCollege to re-verify if needed
+  }, [selectedCollege]); 
+
+  const checkSupabaseAuth = async () => {
+    if (!supabase) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (session?.user?.email) {
+       const email = session.user.email;
+       // We assume data is loaded because Login is rendered after App initialization
+       const users = getAllUsers();
+       const appUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+       
+       if (appUser) {
+           // User exists, log them in seamlessly
+           localStorage.setItem('cc_session', JSON.stringify(appUser));
+           onLoginSuccess(appUser);
+       } else {
+           // User authenticated with Google but has no profile
+           // Pre-fill signup form
+           if (activeTab !== 'signup') {
+              setActiveTab('signup');
+              setSuccessMsg("Google Authentication successful. Please complete your profile to finish registration.");
+              
+              const meta = session.user.user_metadata;
+              setFormData(prev => ({
+                  ...prev,
+                  email: email,
+                  firstName: meta?.full_name?.split(' ')[0] || prev.firstName,
+                  lastName: meta?.full_name?.split(' ').slice(1).join(' ') || prev.lastName,
+              }));
+           }
+       }
+    }
+  };
 
   // Reset messages on tab change
   useEffect(() => {
@@ -60,12 +97,10 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   }, [activeTab, selectedCollege]);
 
   const handleDemoLogin = async (role: UserRole, email: string) => {
-    // Restrict demo login to the Demo University, unless it is the System Admin who is global
     if (role !== UserRole.ADMIN && selectedCollege !== 'col_1') {
       setError('Quick Demo is only available for "Campus Complete Demo Univ"');
       return;
     }
-
     setIsLoading(true);
     setError(null);
     try {
@@ -90,6 +125,17 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    try {
+      await signInWithGoogle();
+      // Note: The page will redirect, so no need to stop loading
+    } catch (err: any) {
+      setError(err.message || 'Google Sign-In failed');
       setIsLoading(false);
     }
   };
@@ -125,17 +171,17 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
 
     try {
-      // Determine Approval requirements text
       let approvalMsg = "Signup successful!";
       if (formData.role === UserRole.PRINCIPAL) approvalMsg += " Pending Administrator approval.";
       else if (formData.role === UserRole.HOD) approvalMsg += " Pending Principal approval.";
       else if (formData.role === UserRole.LECTURER) approvalMsg += " Pending HOD approval.";
       else if (formData.role === UserRole.STUDENT) approvalMsg += " Pending Lecturer approval.";
 
-      const newUser = await registerUser({
+      // Check if we have a supabase user ID to link? 
+      // Currently we just match by email, so we let registerUser generate an ID.
+      await registerUser({
         ...formData,
         collegeId: selectedCollege,
-        // All self-signups via this form are 'Pending' by default as per requirements hierarchy
         status: 'Pending' 
       });
 
@@ -260,42 +306,66 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         )}
 
         {activeTab === 'login' && (
-          <form onSubmit={handleStandardLogin} className="space-y-4 animate-fade-in">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email Address</label>
-              <input 
-                type="email" 
-                required
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                placeholder="name@college.edu"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-              <input 
-                type="password" 
-                required
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                placeholder="••••••••"
-              />
-            </div>
+          <div className="space-y-4 animate-fade-in">
             <button 
-              type="submit" 
-              disabled={isLoading}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition-colors flex justify-center items-center gap-2 mt-4"
+              onClick={handleGoogleLogin}
+              type="button"
+              className="w-full py-3 bg-white border border-slate-200 text-slate-700 font-semibold rounded-xl hover:bg-slate-50 transition-colors flex justify-center items-center gap-2 mb-2"
             >
-              {isLoading ? <Loader2 className="animate-spin" /> : <><LogIn size={18} /> Sign In</>}
+              {isLoading ? <Loader2 className="animate-spin" size={18} /> : <><Chrome size={18} /> Sign in with Google</>}
             </button>
-          </form>
+            
+            <div className="relative flex py-2 items-center">
+                <div className="flex-grow border-t border-slate-200"></div>
+                <span className="flex-shrink-0 mx-4 text-slate-400 text-xs uppercase font-bold">Or with Email</span>
+                <div className="flex-grow border-t border-slate-200"></div>
+            </div>
+
+            <form onSubmit={handleStandardLogin} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Email Address</label>
+                <input 
+                  type="email" 
+                  required
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="name@college.edu"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                <input 
+                  type="password" 
+                  required
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
+              <button 
+                type="submit" 
+                disabled={isLoading}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition-colors flex justify-center items-center gap-2 mt-4"
+              >
+                {isLoading ? <Loader2 className="animate-spin" /> : <><LogIn size={18} /> Sign In</>}
+              </button>
+            </form>
+          </div>
         )}
 
         {activeTab === 'signup' && (
           <form onSubmit={handleSignup} className="space-y-4 animate-fade-in max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
             
+            <button 
+              onClick={handleGoogleLogin}
+              type="button"
+              className="w-full py-3 bg-white border border-slate-200 text-slate-700 font-semibold rounded-xl hover:bg-slate-50 transition-colors flex justify-center items-center gap-2 mb-2 sticky top-0 z-10"
+            >
+              {isLoading ? <Loader2 className="animate-spin" size={18} /> : <><Chrome size={18} /> Sign up with Google</>}
+            </button>
+
             {/* Institution Selector for Signup */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-slate-700 mb-1">Institution</label>

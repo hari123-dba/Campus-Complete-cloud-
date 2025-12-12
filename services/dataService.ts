@@ -467,19 +467,19 @@ export const createProject = async (
 };
 
 
-export const registerUser = async (userData: Partial<User>): Promise<User> => {
+export const registerUser = async (userData: Partial<User>, specificId?: string): Promise<User> => {
   if (!userData.email || !userData.role) throw new Error("Missing required fields");
   if (userData.role !== UserRole.ADMIN && !userData.collegeId) throw new Error("College ID is required");
 
   const existing = _users.find(u => u.email.toLowerCase() === userData.email?.toLowerCase() && u.collegeId === userData.collegeId);
   if (existing) throw new Error(`Email ${userData.email} is already registered.`);
 
-  const newId = `u${Date.now()}`;
+  const newId = specificId || `u${Date.now()}`;
   const newUser = {
     ...userData,
     id: newId,
     name: `${userData.firstName} ${userData.lastName}`,
-    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.firstName}`,
+    avatar: userData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.firstName}`,
     status: userData.status || 'Pending'
   } as User;
 
