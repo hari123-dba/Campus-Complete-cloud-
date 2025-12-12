@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User } from '../types';
-import { updateUserProfile, deleteUserAccount } from '../services/dataService';
+import { updateUserProfile, deleteUserAccount, uploadImage, deleteFile } from '../services/dataService';
 import { logout } from '../services/authService';
-import { UserCircle, Save, Trash2, Phone, CreditCard, Mail, Building, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { UserCircle, Save, Trash2, Phone, CreditCard, Mail, Building, Loader2, AlertCircle, CheckCircle2, Camera } from 'lucide-react';
 
 interface ProfileProps {
   user: User;
@@ -12,7 +12,9 @@ export const Profile: React.FC<ProfileProps> = ({ user }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<Partial<User>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setFormData({
@@ -33,7 +35,6 @@ export const Profile: React.FC<ProfileProps> = ({ user }) => {
         await updateUserProfile(user.id, formData);
         setMsg({ type: 'success', text: 'Profile updated successfully.' });
         setIsEditing(false);
-        // Refresh page to sync all states if needed, though local storage is updated
         setTimeout(() => window.location.reload(), 1000);
     } catch (err: any) {
         setMsg({ type: 'error', text: 'Failed to update profile.' });
@@ -56,6 +57,74 @@ export const Profile: React.FC<ProfileProps> = ({ user }) => {
     }
   };
 
+  const handlePhotoClick = () => {
+      if (fileInputRef.current && !isUploading) {
+          fileInputRef.current.click();
+      }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setMsg(null);
+    try {
+        // 1. Delete old photo if exists
+        if (user.photoFileName) {
+            await deleteFile(`user_uploads/${user.id}/${user.photoFileName}`);
+        }
+
+        // 2. Upload new photo
+        const storagePath = `user_uploads/${user.id}/${file.name}`;
+        const { url } = await uploadImage(file, storagePath);
+
+        // 3. Update Profile
+        const updates = {
+            avatar: url,
+            photoFileName: file.name
+        };
+        await updateUserProfile(user.id, updates);
+
+        // 4. Force reload to update app state
+        setMsg({ type: 'success', text: 'Photo updated.' });
+        setTimeout(() => window.location.reload(), 800);
+    } catch (err) {
+        setMsg({ type: 'error', text: 'Failed to upload photo.' });
+    } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDeletePhoto = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!window.confirm("Remove profile photo?")) return;
+      
+      setIsUploading(true);
+      try {
+          if (user.photoFileName) {
+               await deleteFile(`user_uploads/${user.id}/${user.photoFileName}`);
+          }
+          
+          // Reset to default avatar
+          const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`;
+          const updates = {
+              avatar: defaultAvatar,
+              photoFileName: null
+          };
+          
+          await updateUserProfile(user.id, updates);
+          
+          setMsg({ type: 'success', text: 'Photo removed.' });
+          setTimeout(() => window.location.reload(), 800);
+      } catch (err) {
+          setMsg({ type: 'error', text: 'Failed to remove photo.' });
+      } finally {
+          setIsUploading(false);
+      }
+  };
+
   return (
     <div className="animate-fade-in max-w-4xl mx-auto pb-20">
        <div className="mb-6">
@@ -66,10 +135,43 @@ export const Profile: React.FC<ProfileProps> = ({ user }) => {
        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           {/* Header Cover */}
           <div className="h-32 bg-gradient-to-r from-blue-600 to-indigo-600 relative">
-             <div className="absolute -bottom-12 left-6 md:left-10">
-                <div className="relative">
-                   <img src={user.avatar} className="w-24 h-24 rounded-2xl border-4 border-white shadow-md bg-white object-cover" alt="Profile" />
-                   {/* Edit photo button could go here */}
+             <div className="absolute -bottom-12 left-6 md:left-10 group">
+                <div className="relative inline-block">
+                   <img 
+                       src={user.avatar} 
+                       className="w-24 h-24 rounded-2xl border-4 border-white shadow-md bg-white object-cover" 
+                       alt="Profile" 
+                   />
+                   
+                   {/* Photo Actions Overlay */}
+                   <div className="absolute inset-0 bg-black/40 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[2px]">
+                       <button 
+                         onClick={handlePhotoClick} 
+                         disabled={isUploading}
+                         className="p-1.5 bg-white/20 hover:bg-white/40 text-white rounded-full backdrop-blur-sm transition-colors" 
+                         title="Change Photo"
+                       >
+                           {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+                       </button>
+                       {user.photoFileName && (
+                         <button 
+                            onClick={handleDeletePhoto}
+                            disabled={isUploading}
+                            className="p-1.5 bg-red-500/80 hover:bg-red-600 text-white rounded-full backdrop-blur-sm transition-colors"
+                            title="Remove Photo"
+                         >
+                            <Trash2 size={16} />
+                         </button>
+                       )}
+                   </div>
+                   
+                   <input 
+                       type="file" 
+                       ref={fileInputRef} 
+                       className="hidden" 
+                       accept="image/*" 
+                       onChange={handleFileChange} 
+                   />
                 </div>
              </div>
           </div>
@@ -79,8 +181,6 @@ export const Profile: React.FC<ProfileProps> = ({ user }) => {
                 <div>
                    <h2 className="text-2xl font-bold text-slate-800">{user.name}</h2>
                    <p className="text-slate-500 font-medium">{user.role} • {user.status}</p>
-                   {/* Display filename if it exists in data structure for verification of the requirement */}
-                   {(user as any).photoFileName && <p className="text-xs text-slate-400 mt-1">File: {(user as any).photoFileName}</p>}
                 </div>
                 {!isEditing && (
                     <button 

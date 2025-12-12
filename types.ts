@@ -42,6 +42,7 @@ export interface User {
   email: string;
   role: UserRole;
   avatar: string;
+  photoFileName?: string | null; // Track custom uploaded photo filename
   collegeId?: string; // Made optional for System Admins
   status: UserStatus;
   

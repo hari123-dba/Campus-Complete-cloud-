@@ -1,7 +1,7 @@
 import { Competition, CompetitionStatus, Project, ProjectPhase, Announcement, UserRole, Team, User, College, ActivityLog, TeamMember } from '../types';
 import { db, storage, auth } from '../lib/firebase';
-import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { deleteUser } from 'firebase/auth';
 
 // --- MOCK SEED DATA (For Demo/Offline Mode) ---
@@ -152,9 +152,22 @@ export const uploadImage = async (file: File, path: string): Promise<{ url: stri
   return { url };
 };
 
+export const deleteFile = async (path: string): Promise<void> => {
+  const storageRef = ref(storage, path);
+  try {
+    await deleteObject(storageRef);
+  } catch (error: any) {
+    if (error.code !== 'storage/object-not-found') {
+      console.error("Delete file error:", error);
+      throw error;
+    }
+  }
+};
+
 export const updateUserProfile = async (uid: string, data: Partial<User>) => {
   const userRef = doc(db, 'users', uid);
-  await updateDoc(userRef, data as any);
+  // Use setDoc with merge: true to handle cases where the document doesn't exist (e.g. demo users)
+  await setDoc(userRef, data, { merge: true });
   
   // Update local session if needed
   const currentSession = localStorage.getItem('cc_session');
