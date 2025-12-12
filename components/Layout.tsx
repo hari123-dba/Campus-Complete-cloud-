@@ -1,7 +1,7 @@
 import React, { ReactNode, useEffect, useState } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { User, UserRole } from '../types';
-import { LayoutDashboard, Trophy, FolderKanban, Users, LogOut, Menu, Bell, Plus } from 'lucide-react';
+import { LayoutDashboard, Trophy, FolderKanban, Users, LogOut, Menu, Bell, Plus, UserCircle } from 'lucide-react';
 import { logout } from '../services/authService';
 import { getPendingUsers } from '../services/dataService';
 
@@ -50,7 +50,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
       {/* Mobile Header */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-white z-30 border-b border-slate-200 flex items-center justify-between px-4 md:hidden pt-safe">
         <div className="flex items-center gap-2">
-           <img src="https://storage.googleapis.com/campus_bucket/my%20photo.jpg" alt="Logo" className="w-8 h-8 rounded-lg object-cover" />
+           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-sm">
+             <Trophy size={18} />
+           </div>
            <span className="font-bold text-slate-800">CompeteHub</span>
         </div>
         <div className="flex items-center gap-3">
@@ -64,27 +66,31 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                )}
              </Link>
           )}
-          <img src={user.avatar} alt="Profile" className="w-8 h-8 rounded-full border border-slate-200" />
+          <Link to="/profile">
+            <img src={user.avatar} alt="Profile" className="w-8 h-8 rounded-full border border-slate-200" />
+          </Link>
         </div>
       </div>
 
       {/* Sidebar (Desktop) */}
       <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-900 text-slate-100 transform transition-transform duration-200 md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:static md:flex md:flex-col`}>
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-           <img src="https://storage.googleapis.com/campus_bucket/my%20photo.jpg" alt="Logo" className="w-10 h-10 rounded-xl object-cover shadow-lg shadow-blue-500/30" />
+           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-900/20">
+             <Trophy size={24} />
+           </div>
            <div>
              <h1 className="font-bold text-lg leading-tight">Campus<br/>Complete</h1>
            </div>
         </div>
 
         <div className="p-4 border-b border-slate-800">
-           <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50">
+           <Link to="/profile" className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 hover:bg-slate-800 transition-colors">
              <img src={user.avatar} className="w-10 h-10 rounded-full" alt="" />
              <div className="overflow-hidden">
                <p className="font-semibold text-sm truncate">{user.name}</p>
                <p className="text-xs text-slate-400 truncate">{user.role}</p>
              </div>
-           </div>
+           </Link>
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
@@ -106,6 +112,15 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                </Link>
              );
           })}
+          
+           {/* Profile Link in Nav */}
+           <Link
+             to="/profile"
+             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all relative ${location.pathname === '/profile' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+           >
+             <UserCircle size={20} />
+             My Profile
+           </Link>
         </nav>
 
         <div className="p-4">
@@ -124,7 +139,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
         {/* Desktop Header for Notifications */}
         <div className="hidden md:flex items-center justify-between px-8 py-4 border-b border-slate-200 bg-white sticky top-0 z-20">
            <h2 className="text-xl font-bold text-slate-800">
-             {navItems.find(i => i.path === location.pathname)?.label || 'Overview'}
+             {location.pathname === '/profile' ? 'My Profile' : navItems.find(i => i.path === location.pathname)?.label || 'Overview'}
            </h2>
            <div className="flex items-center gap-4">
               {user.role !== UserRole.STUDENT && (
@@ -165,6 +180,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                </Link>
              );
           })}
+          {/* Mobile Profile Icon */}
+          <Link
+             to="/profile"
+             className={`flex flex-col items-center justify-center w-full h-full space-y-1 relative ${location.pathname === '/profile' ? 'text-blue-600' : 'text-slate-400'}`}
+           >
+             <UserCircle size={20} strokeWidth={location.pathname === '/profile' ? 2.5 : 2} />
+             <span className="text-[10px] font-medium">Profile</span>
+           </Link>
         </div>
       </nav>
     </div>

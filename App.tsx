@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Login } from './pages/Login';
@@ -6,6 +5,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Competitions } from './pages/Competitions';
 import { Projects } from './pages/Projects';
 import { Teams } from './pages/Teams';
+import { Profile } from './pages/Profile';
 import { Layout } from './components/Layout';
 import { getSession } from './services/authService';
 import { initializeDatabase } from './services/dataService';
@@ -59,6 +59,7 @@ function App() {
                   <Route path="/competitions" element={<Competitions user={user} />} />
                   <Route path="/projects" element={<Projects user={user} />} />
                   <Route path="/teams" element={<Teams user={user} />} />
+                  <Route path="/profile" element={<Profile user={user} />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Layout>

@@ -329,7 +329,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         /* Main Auth Flow */
         <>
             <div className="flex flex-col items-center mb-6">
-            <img src="https://storage.googleapis.com/campus_bucket/my%20photo.jpg" alt="Logo" className="w-16 h-16 rounded-2xl mb-4 shadow-lg object-cover" />
+            <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mb-4 text-blue-600 shadow-inner">
+                <Trophy size={32} />
+            </div>
             <h1 className="text-2xl font-bold text-slate-800 text-center">Campus Complete</h1>
             <p className="text-slate-500 text-center mt-1">Project & Competition Manager</p>
             </div>

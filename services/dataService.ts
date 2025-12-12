@@ -1,4 +1,8 @@
 import { Competition, CompetitionStatus, Project, ProjectPhase, Announcement, UserRole, Team, User, College, ActivityLog, TeamMember } from '../types';
+import { db, storage, auth } from '../lib/firebase';
+import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { deleteUser } from 'firebase/auth';
 
 // --- MOCK SEED DATA (For Demo/Offline Mode) ---
 const SEED_COLLEGES: College[] = [
@@ -139,6 +143,41 @@ export const initializeDatabase = async () => {
 };
 
 
+// --- FIRESTORE USER MANAGEMENT ---
+
+export const uploadImage = async (file: File, path: string): Promise<{ url: string }> => {
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, file);
+  const url = await getDownloadURL(storageRef);
+  return { url };
+};
+
+export const updateUserProfile = async (uid: string, data: Partial<User>) => {
+  const userRef = doc(db, 'users', uid);
+  await updateDoc(userRef, data as any);
+  
+  // Update local session if needed
+  const currentSession = localStorage.getItem('cc_session');
+  if (currentSession) {
+    const sessionUser = JSON.parse(currentSession);
+    if (sessionUser.id === uid) {
+      localStorage.setItem('cc_session', JSON.stringify({ ...sessionUser, ...data }));
+    }
+  }
+};
+
+export const deleteUserAccount = async (uid: string) => {
+  // 1. Delete Firestore Doc
+  await deleteDoc(doc(db, 'users', uid));
+  
+  // 2. Delete Auth User
+  if (auth.currentUser && auth.currentUser.uid === uid) {
+      await deleteUser(auth.currentUser);
+  }
+  
+  localStorage.removeItem('cc_session');
+};
+
 // --- DATA ACCESSORS ---
 export const getColleges = () => [..._colleges];
 export const getAllUsers = () => [..._users];
@@ -182,7 +221,7 @@ export const getPendingUsers = (approver: User): User[] => {
   return [];
 };
 
-// --- MUTATIONS ---
+// --- MUTATIONS (Local Storage Mock for now, except User) ---
 
 export const createTeam = async (name: string, user: User): Promise<Team> => {
   const teamId = `t${Date.now()}`;
@@ -262,6 +301,7 @@ export const createProject = async (
 
 
 export const registerUser = async (userData: Partial<User>, specificId?: string): Promise<User> => {
+  // Legacy function for mock data (Login.tsx now uses authService for real firebase signup)
   if (!userData.email || !userData.role) throw new Error("Missing required fields");
   if (userData.role !== UserRole.ADMIN && !userData.collegeId) throw new Error("College ID is required");
 

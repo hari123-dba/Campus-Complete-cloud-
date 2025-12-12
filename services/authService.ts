@@ -1,29 +1,63 @@
 import { User, UserRole } from '../types';
-import { getAllUsers, getColleges } from './dataService';
-import { auth } from '../lib/firebase';
+import { getAllUsers } from './dataService';
+import { auth, db } from '../lib/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendEmailVerification, signOut, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { uploadImage } from './dataService';
+
+// Helper to normalize Firebase User to App User
+const mapUserDocsToAppUser = (authUser: any, docData: any): any => {
+    return {
+        id: authUser.uid,
+        name: docData.name || authUser.displayName || 'User',
+        email: authUser.email,
+        role: docData.role || UserRole.STUDENT,
+        avatar: docData.avatar || authUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${authUser.uid}`,
+        status: docData.status || 'Active',
+        collegeId: docData.collegeId || 'col_1',
+        ...docData
+    };
+};
+
+// Sync mechanism: Ensure Firestore doc exists
+const ensureFirestoreDoc = async (authUser: any, additionalData: any = {}) => {
+    const userRef = doc(db, 'users', authUser.uid);
+    const userSnap = await getDoc(userRef);
+
+    if (userSnap.exists()) {
+        return userSnap.data();
+    } else {
+        // Create new doc if missing
+        const newUserData = {
+            uid: authUser.uid,
+            name: authUser.displayName || additionalData.name || authUser.email?.split('@')[0],
+            email: authUser.email,
+            role: additionalData.role || UserRole.STUDENT,
+            avatar: authUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${authUser.uid}`,
+            createdAt: new Date().toISOString(),
+            status: 'Active',
+            collegeId: additionalData.collegeId || 'col_1',
+            ...additionalData
+        };
+        await setDoc(userRef, newUserData);
+        return newUserData;
+    }
+};
 
 export const login = async (email: string, role?: UserRole, collegeId?: string): Promise<{ user: User | null; error: string | null }> => {
   // MOCK LOGIN STRATEGY (For Demo Mode)
-  // This uses local seed data instead of Firebase Auth
   try {
-    // Simulate network delay
     await new Promise(resolve => setTimeout(resolve, 800));
-
     const users = getAllUsers();
     const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
 
     if (user) {
-      // Optional: Check college context if provided
       if (collegeId && user.collegeId && user.collegeId !== collegeId && user.role !== UserRole.ADMIN) {
          return { user: null, error: "User belongs to a different institution." };
       }
-
-      // Save mock session
       localStorage.setItem('cc_session', JSON.stringify(user));
       return { user, error: null };
     }
-
     return { user: null, error: "User not found in demo database." };
   } catch (e) {
       console.error(e);
@@ -31,32 +65,21 @@ export const login = async (email: string, role?: UserRole, collegeId?: string):
   }
 };
 
-// New function for Firebase Login
 export const firebaseLogin = async (email: string, password: string): Promise<{ user: any | null; error: string | null }> => {
     try {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const fbUser = userCredential.user;
 
-        // Check for Email Verification
         if (!fbUser.emailVerified) {
             await signOut(auth);
             return { user: null, error: "Email not verified. Please check your inbox." };
         }
         
-        // Construct a generic User object since we aren't fetching full profile from DB
-        const appUser: any = {
-            id: fbUser.uid,
-            name: fbUser.displayName || email.split('@')[0],
-            email: fbUser.email || email,
-            role: UserRole.STUDENT, // Defaulting to Student as we aren't saving/fetching role info
-            avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${fbUser.uid}`,
-            status: 'Active',
-            collegeId: 'col_1' // Default for demo
-        };
+        // Fetch or Create Firestore Document
+        const docData = await ensureFirestoreDoc(fbUser);
+        const appUser = mapUserDocsToAppUser(fbUser, docData);
         
-        // Persist session
         localStorage.setItem('cc_session', JSON.stringify(appUser));
-        
         return { user: appUser, error: null };
     } catch (error: any) {
         console.error("Firebase Login Error:", error.code);
@@ -76,20 +99,10 @@ export const signInWithGoogle = async (): Promise<{ user: any | null; error: str
         const result = await signInWithPopup(auth, provider);
         const fbUser = result.user;
         
-        // Construct generic user object
-        // Note: In a real app, you might check Firestore to see if this user already has a role assigned.
-        // Here we default to Student.
-        const appUser: any = {
-            id: fbUser.uid,
-            name: fbUser.displayName || fbUser.email?.split('@')[0],
-            email: fbUser.email,
-            role: UserRole.STUDENT, 
-            avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${fbUser.uid}`,
-            status: 'Active',
-            collegeId: 'col_1'
-        };
+        // Fetch or Create Firestore Document
+        const docData = await ensureFirestoreDoc(fbUser);
+        const appUser = mapUserDocsToAppUser(fbUser, docData);
 
-        // Persist session
         localStorage.setItem('cc_session', JSON.stringify(appUser));
         return { user: appUser, error: null };
 
@@ -99,28 +112,46 @@ export const signInWithGoogle = async (): Promise<{ user: any | null; error: str
     }
 };
 
-export const firebaseSignup = async (email: string, password: string, name: string): Promise<{ user: any | null; error: string | null }> => {
+export const firebaseSignup = async (email: string, password: string, userData: any, profilePhotoFile?: File | null): Promise<{ user: any | null; error: string | null }> => {
     try {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const fbUser = userCredential.user;
         
-        // Update profile with name
-        if (auth.currentUser) {
-            await updateProfile(auth.currentUser, {
-                displayName: name
-            });
-            // Send Verification Email
-            await sendEmailVerification(auth.currentUser);
-            // Sign out immediately to prevent auto-login before verification
-            await signOut(auth);
+        // Upload photo if exists
+        let photoURL = fbUser.photoURL;
+        let photoFileName = null;
+        if (profilePhotoFile) {
+            try {
+                const uploadResult = await uploadImage(profilePhotoFile, `avatars/${fbUser.uid}`);
+                photoURL = uploadResult.url;
+                photoFileName = profilePhotoFile.name;
+            } catch (err) {
+                console.error("Photo upload failed during signup", err);
+            }
         }
 
-        // Return a partial user object to indicate success to the caller
-        const appUser: any = {
-            email: email,
-            name: name
-        };
+        // Update Auth Profile
+        await updateProfile(fbUser, {
+            displayName: userData.name,
+            photoURL: photoURL
+        });
 
-        return { user: appUser, error: null };
+        // Create Firestore Document
+        const firestoreData = {
+            ...userData,
+            photoFileName, // Store filename as requested
+            avatar: photoURL,
+            email: email, // ensure email is set
+            createdAt: new Date().toISOString()
+        };
+        
+        await ensureFirestoreDoc(fbUser, firestoreData);
+
+        // Send Verification Email
+        await sendEmailVerification(fbUser);
+        await signOut(auth);
+
+        return { user: { ...firestoreData, id: fbUser.uid }, error: null };
     } catch (error: any) {
         console.error("Firebase Signup Error:", error.code);
         let errorMessage = "Registration failed";
