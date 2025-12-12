@@ -1,7 +1,7 @@
 import React, { ReactNode, useEffect, useState } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { User, UserRole } from '../types';
-import { LayoutDashboard, Trophy, FolderKanban, Users, LogOut, Menu, Bell } from 'lucide-react';
+import { LayoutDashboard, Trophy, FolderKanban, Users, LogOut, Menu, Bell, Plus } from 'lucide-react';
 import { logout } from '../services/authService';
 import { getPendingUsers } from '../services/dataService';
 

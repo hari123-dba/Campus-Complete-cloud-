@@ -27,7 +27,11 @@ export interface College {
   id: string;
   name: string;
   emailId: string; // The official college email identifier/domain
+  website: string;
+  address: string;
+  contactPhone: string;
   status: 'Active' | 'Suspended';
+  createdAt: string; // ISO String timestamp of when the college was added
 }
 
 export interface User {
