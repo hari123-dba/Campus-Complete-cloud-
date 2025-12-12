@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { User, UserRole, ProjectPhase, College, ActivityLog, CompetitionStatus } from '../types';
+import { User, UserRole, ProjectPhase, College, ActivityLog, CompetitionStatus, Project } from '../types';
 import { getDataForUser, getPendingUsers, approveUser, rejectUser, addCollege, getColleges, updateCollegeStatus, removeCollege, getAllUsers, getSystemLogs } from '../services/dataService';
 import { 
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend, LineChart, Line, CartesianGrid
 } from 'recharts';
 import { 
   Clock, TrendingUp, AlertCircle, CheckCircle2, UserCheck, XCircle, 
   School, X, Loader2, Shield, Users, Trophy, Award,
-  FileText, Activity, BarChart2, Power, Trash2, Building2, FolderKanban, ClipboardCheck, Globe, MapPin, Phone, UserCog, GraduationCap, Zap, ChevronRight, Plus
+  FileText, Activity, BarChart2, Power, Trash2, Building2, FolderKanban, ClipboardCheck, Globe, MapPin, Phone, UserCog, GraduationCap, Zap, ChevronRight, Plus, Rocket, BookOpen, Target, Calendar
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -17,20 +17,19 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const navigate = useNavigate();
+  // Fetch specific data for user
   const { competitions, projects, announcements } = getDataForUser(user.id, user.role);
+  
+  // State for Admin/Management
   const [pendingUsers, setPendingUsers] = useState<User[]>([]);
   const [processedIds, setProcessedIds] = useState<string[]>([]);
-  
-  // Admin & Management: Data States
   const [showAddCollegeModal, setShowAddCollegeModal] = useState(false);
   const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
-
-  // New College Form State
   const [newCollegeForm, setNewCollegeForm] = useState({ 
     name: '', emailId: '', website: '', address: '', contactPhone: ''
   });
   
-  // Directory State
+  // Global Data State (for stats calculation)
   const [collegeList, setCollegeList] = useState<College[]>([]);
   const [allSystemUsers, setAllSystemUsers] = useState<User[]>([]);
   const [systemLogs, setSystemLogs] = useState<ActivityLog[]>([]);
@@ -38,12 +37,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [modalMsg, setModalMsg] = useState<{type: 'error' | 'success', text: string} | null>(null);
 
-  // Initial Fetch for Management Roles
+  // --- 1. DATA FETCHING & POLLING ---
   useEffect(() => {
-    // Fetch system users for all management roles to calculate stats
+    // Initial fetch of system-wide users for non-students (to calculate stats)
     if (user.role !== UserRole.STUDENT) {
       setAllSystemUsers(getAllUsers());
-      
       if (user.role === UserRole.ADMIN) {
         setCollegeList(getColleges());
         setSystemLogs(getSystemLogs());
@@ -51,7 +49,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     }
   }, [user.role, pendingUsers, processedIds]); 
 
-  // Fetch pending users based on Role Hierarchy
+  // Poll for pending users
   useEffect(() => {
     if (user.role !== UserRole.STUDENT) {
       const updatePending = () => {
@@ -65,7 +63,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     }
   }, [user, processedIds]);
 
-  // --- ACTIONS ---
+  // --- 2. ACTIONS ---
   const handleApprove = async (id: string) => {
     await approveUser(id);
     setProcessedIds(prev => [...prev, id]);
@@ -111,145 +109,435 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     }
   };
 
-  // --- STATS CALCULATION ---
-  const dashboardStats = useMemo(() => {
-    // 1. Common Stats
-    const activeCompetitions = competitions.filter(c => c.status === CompetitionStatus.ONGOING).length;
-    
-    // 2. Role Specific Logic
-    if (user.role === UserRole.PRINCIPAL) {
-        const collegeUsers = allSystemUsers.filter(u => u.collegeId === user.collegeId);
-        const uniqueDepts = new Set(collegeUsers.map(u => u.department).filter(Boolean)).size;
-        return {
-            title: "Principal Dashboard",
-            stats: [
-                { label: "Departments", value: uniqueDepts, icon: Building2, color: "bg-purple-600" },
-                { label: "Total Students", value: collegeUsers.filter(u => u.role === UserRole.STUDENT).length, icon: Users, color: "bg-blue-600" },
-                { label: "Active Competitions", value: activeCompetitions, icon: Award, color: "bg-green-500" },
-                { label: "Pending Approvals", value: pendingUsers.length, icon: ClipboardCheck, color: "bg-orange-500" }
-            ]
-        };
-    }
-
-    if (user.role === UserRole.HOD) {
-        const deptUsers = allSystemUsers.filter(u => u.collegeId === user.collegeId && u.department === user.department);
-        // Estimate Dept Projects (by finding students in this dept)
-        const deptStudentIds = deptUsers.filter(u => u.role === UserRole.STUDENT).map(u => u.id);
-        const deptProjectsCount = projects.filter(p => deptStudentIds.includes(p.studentId)).length; 
-
-        return {
-            title: `Department: ${user.department}`,
-            stats: [
-                { label: "Lecturers", value: deptUsers.filter(u => u.role === UserRole.LECTURER).length, icon: UserCog, color: "bg-indigo-600" },
-                { label: "Students", value: deptUsers.filter(u => u.role === UserRole.STUDENT).length, icon: GraduationCap, color: "bg-blue-600" },
-                { label: "Dept Projects", value: deptProjectsCount || projects.length, icon: FolderKanban, color: "bg-pink-600" },
-                { label: "Pending Approvals", value: pendingUsers.length, icon: ClipboardCheck, color: "bg-orange-500" }
-            ]
-        };
-    }
-
-    if (user.role === UserRole.LECTURER) {
-        const deptUsers = allSystemUsers.filter(u => u.collegeId === user.collegeId && u.department === user.department);
-        return {
-            title: "Lecturer Dashboard",
-            stats: [
-                { label: "My Students", value: deptUsers.filter(u => u.role === UserRole.STUDENT).length, icon: GraduationCap, color: "bg-blue-600" },
-                { label: "Active Projects", value: projects.length, icon: Activity, color: "bg-green-600" },
-                { label: "Competitions", value: activeCompetitions, icon: Trophy, color: "bg-purple-500" },
-                { label: "Pending Approvals", value: pendingUsers.length, icon: ClipboardCheck, color: "bg-orange-500" }
-            ]
-        };
-    }
-
-    if (user.role === UserRole.STUDENT) {
-        const myActiveProjects = projects.filter(p => p.phase !== ProjectPhase.IMPLEMENTATION).length;
-        const myCompletedProjects = projects.length - myActiveProjects;
-        return {
-            title: "Student Workspace",
-            stats: [
-                { label: "Active Projects", value: myActiveProjects, icon: Zap, color: "bg-blue-500" },
-                { label: "Completed", value: myCompletedProjects, icon: CheckCircle2, color: "bg-green-500" },
-                { label: "Competitions", value: activeCompetitions, icon: Trophy, color: "bg-purple-500" },
-                { label: "Upcoming", value: "2", icon: Clock, color: "bg-orange-500", suffix: "Events" } 
-            ]
-        };
-    }
-
-    return null; // Admin handled separately
-  }, [user, allSystemUsers, projects, competitions, pendingUsers]);
-
-
-  // --- HELPER: Role Actions ---
-  const getRoleActions = () => {
-    const actions = [];
-
-    if (user.role === UserRole.PRINCIPAL) {
-        actions.push(
-            { label: 'View Analytics', icon: BarChart2, color: 'text-purple-600', bg: 'bg-purple-50', onClick: () => setShowAnalyticsModal(true) },
-            { label: 'Manage Departments', icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50', onClick: () => {} },
-            { label: 'View Competitions', icon: Trophy, color: 'text-green-600', bg: 'bg-green-50', onClick: () => navigate('/competitions') }
-        );
-    } else if (user.role === UserRole.HOD) {
-        actions.push(
-            { label: 'Dept. Analytics', icon: BarChart2, color: 'text-indigo-600', bg: 'bg-indigo-50', onClick: () => setShowAnalyticsModal(true) },
-            { label: 'Verify Projects', icon: ClipboardCheck, color: 'text-pink-600', bg: 'bg-pink-50', onClick: () => navigate('/projects') },
-            { label: 'Manage Lecturers', icon: UserCog, color: 'text-blue-600', bg: 'bg-blue-50', onClick: () => {} }
-        );
-    } else if (user.role === UserRole.LECTURER) {
-         actions.push(
-            { label: 'Evaluate Projects', icon: CheckCircle2, color: 'text-green-600', bg: 'bg-green-50', onClick: () => navigate('/projects') },
-            { label: 'My Students', icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', onClick: () => navigate('/teams') },
-            { label: 'Class Analytics', icon: Activity, color: 'text-orange-600', bg: 'bg-orange-50', onClick: () => setShowAnalyticsModal(true) }
-        );
-    } else if (user.role === UserRole.STUDENT) {
-         actions.push(
-            { label: 'Register Project', icon: Plus, color: 'text-blue-600', bg: 'bg-blue-50', onClick: () => navigate('/competitions') },
-            { label: 'Join Team', icon: Users, color: 'text-purple-600', bg: 'bg-purple-50', onClick: () => navigate('/teams') },
-            { label: 'View Board', icon: FolderKanban, color: 'text-orange-600', bg: 'bg-orange-50', onClick: () => navigate('/projects') }
-        );
-    }
-    return actions;
-  };
-
-  const quickActions = getRoleActions();
-
-  // --- RENDER HELPERS ---
-  const StatCard = ({ title, value, icon: Icon, color, suffix }: any) => (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition-all group">
-      <div>
-        <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1 opacity-80">{title}</p>
-        <h3 className="text-2xl font-bold text-slate-800 flex items-baseline gap-1">
-            {value.toLocaleString()} 
-            {suffix && <span className="text-sm font-medium text-slate-400">{suffix}</span>}
-        </h3>
+  // --- 3. HELPER COMPONENTS ---
+  
+  const StatCard = ({ title, value, icon: Icon, color, suffix, subtext }: any) => (
+    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all group h-full">
+      <div className="flex justify-between items-start mb-4">
+        <div className={`w-12 h-12 rounded-xl ${color} bg-opacity-10 group-hover:bg-opacity-20 flex items-center justify-center transition-colors`}>
+          <Icon className={`w-6 h-6 ${color.replace('bg-', 'text-')}`} />
+        </div>
+        {suffix && <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{suffix}</span>}
       </div>
-      <div className={`w-12 h-12 rounded-xl ${color} bg-opacity-10 group-hover:bg-opacity-20 flex items-center justify-center transition-colors`}>
-        <Icon className={`w-6 h-6 ${color.replace('bg-', 'text-')}`} />
+      <div>
+        <h3 className="text-3xl font-bold text-slate-800 tracking-tight">
+            {value.toLocaleString()} 
+        </h3>
+        <p className="text-slate-500 text-sm font-medium mt-1">{title}</p>
+        {subtext && <p className="text-xs text-slate-400 mt-2 pt-2 border-t border-slate-50">{subtext}</p>}
       </div>
     </div>
   );
 
-  // --- VIEW: ADMINISTRATOR ---
-  if (user.role === UserRole.ADMIN) {
+  const PendingApprovalsAlert = () => {
+    if (pendingUsers.length === 0) return null;
+    return (
+      <div className="bg-white border-l-4 border-yellow-400 rounded-xl p-6 shadow-sm mb-6 animate-fade-in">
+         <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center gap-3">
+               <div className="p-2 bg-yellow-50 text-yellow-600 rounded-lg"><UserCheck size={24} /></div>
+               <div>
+                 <h3 className="font-bold text-slate-800 text-lg">Action Required</h3>
+                 <p className="text-slate-500 text-sm">
+                   You have <span className="font-bold text-yellow-600">{pendingUsers.length} pending approvals</span> awaiting review.
+                 </p>
+               </div>
+            </div>
+            <span className="bg-yellow-100 text-yellow-800 text-xs font-bold px-3 py-1 rounded-full">High Priority</span>
+         </div>
+         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+             {pendingUsers.slice(0, 3).map(u => (
+               <div key={u.id} className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col gap-3">
+                 <div className="flex items-center gap-3">
+                   <img src={u.avatar} alt="" className="w-10 h-10 rounded-full bg-white" />
+                   <div className="overflow-hidden">
+                     <p className="font-bold text-slate-800 text-sm truncate">{u.name}</p>
+                     <p className="text-xs text-slate-500 font-medium truncate">{u.role} • {u.department || 'General'}</p>
+                   </div>
+                 </div>
+                 <div className="flex gap-2 mt-auto">
+                   <button onClick={() => handleReject(u.id)} className="flex-1 py-1.5 bg-white border border-slate-200 text-red-600 hover:bg-red-50 rounded-lg text-xs font-bold">Reject</button>
+                   <button onClick={() => handleApprove(u.id)} className="flex-1 py-1.5 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-xs font-bold">Approve</button>
+                 </div>
+               </div>
+             ))}
+             {pendingUsers.length > 3 && (
+               <div className="flex items-center justify-center bg-slate-50 rounded-xl border border-slate-200 border-dashed text-slate-400 text-sm font-medium">
+                  +{pendingUsers.length - 3} more requests
+               </div>
+             )}
+         </div>
+      </div>
+    );
+  };
+
+  const SectionHeader = ({ title, action }: {title: string, action?: React.ReactNode}) => (
+    <div className="flex items-center justify-between mb-4">
+      <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+        <div className="w-1 h-6 bg-blue-600 rounded-full"></div>
+        {title}
+      </h2>
+      {action}
+    </div>
+  );
+
+  // --- 4. ROLE SPECIFIC DASHBOARDS ---
+
+  // === STUDENT DASHBOARD ===
+  const StudentDashboard = () => {
+    const activeProjects = projects.filter(p => p.phase !== ProjectPhase.IMPLEMENTATION);
+    const completedProjects = projects.filter(p => p.phase === ProjectPhase.IMPLEMENTATION);
+    const ongoingCompetitions = competitions.filter(c => c.status === CompetitionStatus.ONGOING);
+
+    return (
+      <div className="space-y-8 animate-fade-in">
+        {/* Hero Section */}
+        <div className="relative bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl p-8 text-white overflow-hidden shadow-xl shadow-blue-200">
+           <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
+           <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500/20 rounded-full blur-3xl -ml-10 -mb-10"></div>
+           
+           <div className="relative z-10">
+              <div className="flex items-start justify-between">
+                <div>
+                   <h1 className="text-3xl font-bold mb-2">Welcome back, {user.firstName}!</h1>
+                   <p className="text-blue-100 max-w-lg text-lg">You have <span className="font-bold text-white">{activeProjects.length} active projects</span> and <span className="font-bold text-white">2 upcoming deadlines</span> this week.</p>
+                </div>
+                <div className="hidden md:block">
+                   <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center">
+                      <Rocket size={32} className="text-white" />
+                   </div>
+                </div>
+              </div>
+
+              <div className="mt-8 flex flex-wrap gap-4">
+                 <button onClick={() => navigate('/competitions')} className="px-6 py-3 bg-white text-blue-700 font-bold rounded-xl shadow-sm hover:bg-blue-50 transition-colors flex items-center gap-2">
+                    <Zap size={18} /> Find Competitions
+                 </button>
+                 <button onClick={() => navigate('/projects')} className="px-6 py-3 bg-blue-500/30 backdrop-blur-sm text-white border border-white/20 font-bold rounded-xl hover:bg-blue-500/40 transition-colors flex items-center gap-2">
+                    <FolderKanban size={18} /> View My Board
+                 </button>
+              </div>
+           </div>
+        </div>
+
+        {/* Stats & Quick Links */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center hover:border-blue-300 transition-colors cursor-pointer" onClick={() => navigate('/projects')}>
+              <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-2"><Activity size={20} /></div>
+              <span className="text-2xl font-bold text-slate-800">{activeProjects.length}</span>
+              <span className="text-xs text-slate-500 font-medium">Active Projects</span>
+           </div>
+           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center hover:border-green-300 transition-colors cursor-pointer">
+              <div className="w-10 h-10 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-2"><Trophy size={20} /></div>
+              <span className="text-2xl font-bold text-slate-800">{ongoingCompetitions.length}</span>
+              <span className="text-xs text-slate-500 font-medium">Live Events</span>
+           </div>
+           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center hover:border-purple-300 transition-colors cursor-pointer" onClick={() => navigate('/teams')}>
+              <div className="w-10 h-10 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mb-2"><Users size={20} /></div>
+              <span className="text-2xl font-bold text-slate-800">Teams</span>
+              <span className="text-xs text-slate-500 font-medium">Manage Teams</span>
+           </div>
+           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center hover:border-orange-300 transition-colors cursor-pointer" onClick={() => navigate('/profile')}>
+              <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mb-2"><CheckCircle2 size={20} /></div>
+              <span className="text-2xl font-bold text-slate-800">{completedProjects.length}</span>
+              <span className="text-xs text-slate-500 font-medium">Completed</span>
+           </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+           {/* Active Projects List */}
+           <div className="lg:col-span-2">
+              <SectionHeader title="Current Projects" action={<button onClick={() => navigate('/projects')} className="text-xs font-bold text-blue-600 hover:underline">View All</button>} />
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                {activeProjects.length > 0 ? (
+                  <div className="divide-y divide-slate-100">
+                    {activeProjects.map(p => (
+                      <div key={p.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between">
+                         <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center font-bold text-slate-400">
+                               {p.title.substring(0,2).toUpperCase()}
+                            </div>
+                            <div>
+                               <h4 className="font-bold text-slate-800">{p.title}</h4>
+                               <p className="text-xs text-slate-500">{p.teamName}</p>
+                            </div>
+                         </div>
+                         <div className="text-right">
+                            <span className="inline-block px-3 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full mb-1">{p.phase}</span>
+                            <p className="text-[10px] text-slate-400">Updated {p.lastUpdated}</p>
+                         </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center">
+                    <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-300">
+                      <FolderKanban size={24} />
+                    </div>
+                    <p className="text-slate-500 font-medium">No active projects</p>
+                    <button onClick={() => navigate('/competitions')} className="mt-2 text-sm text-blue-600 font-bold">Start a project</button>
+                  </div>
+                )}
+              </div>
+           </div>
+
+           {/* Recommended Competitions */}
+           <div>
+              <SectionHeader title="Explore Events" />
+              <div className="space-y-4">
+                 {competitions.slice(0, 3).map(c => (
+                   <div key={c.id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate('/competitions')}>
+                      <div className="flex items-center gap-3 mb-3">
+                         <div className="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center"><Trophy size={18} /></div>
+                         <div className="flex-1 min-w-0">
+                           <h4 className="font-bold text-slate-800 text-sm truncate">{c.title}</h4>
+                           <p className="text-xs text-slate-500">{c.date}</p>
+                         </div>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                         <span className={`px-2 py-0.5 rounded-full font-bold ${c.status === 'Ongoing' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{c.status}</span>
+                         <span className="text-slate-400">{c.participants} Participants</span>
+                      </div>
+                   </div>
+                 ))}
+              </div>
+           </div>
+        </div>
+      </div>
+    );
+  };
+
+  // === LECTURER DASHBOARD ===
+  const LecturerDashboard = () => {
+    // Filter students belonging to this lecturer's department and college
+    const myStudents = allSystemUsers.filter(u => u.role === UserRole.STUDENT && u.department === user.department && u.collegeId === user.collegeId);
+    const myDeptProjects = projects.filter(p => myStudents.some(s => s.id === p.studentId));
+    const pendingEvaluations = myDeptProjects.filter(p => p.phase === ProjectPhase.TESTING || p.phase === ProjectPhase.IMPLEMENTATION);
+
+    return (
+      <div className="space-y-8 animate-fade-in">
+         <div className="flex items-center justify-between">
+           <div>
+              <h1 className="text-2xl font-bold text-slate-900">Lecturer Overview</h1>
+              <p className="text-slate-500">Department of {user.department}</p>
+           </div>
+           <button onClick={() => setShowAnalyticsModal(true)} className="px-4 py-2 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 flex items-center gap-2">
+              <Activity size={18} /> Class Analytics
+           </button>
+         </div>
+
+         <PendingApprovalsAlert />
+
+         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <StatCard title="Total Students" value={myStudents.length} icon={GraduationCap} color="bg-blue-600" suffix="Assigned" />
+            <StatCard title="Active Projects" value={myDeptProjects.length} icon={FolderKanban} color="bg-indigo-600" />
+            <StatCard title="Pending Review" value={pendingEvaluations.length} icon={ClipboardCheck} color="bg-orange-500" subtext="Projects in Testing/Implementation" />
+         </div>
+
+         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Needs Attention */}
+            <div>
+               <SectionHeader title="Projects Needing Review" />
+               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  {pendingEvaluations.length > 0 ? (
+                     <div className="divide-y divide-slate-100">
+                        {pendingEvaluations.map(p => (
+                           <div key={p.id} className="p-4 hover:bg-slate-50 transition-colors flex justify-between items-center group">
+                              <div>
+                                 <h4 className="font-bold text-slate-800 text-sm">{p.title}</h4>
+                                 <p className="text-xs text-slate-500">{p.teamName}</p>
+                              </div>
+                              <button onClick={() => navigate('/projects')} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 text-xs font-bold rounded-lg group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-colors">
+                                 Evaluate
+                              </button>
+                           </div>
+                        ))}
+                     </div>
+                  ) : (
+                     <div className="p-8 text-center text-slate-400 text-sm">No pending evaluations.</div>
+                  )}
+               </div>
+            </div>
+
+            {/* Student Progress Chart */}
+            <div>
+               <SectionHeader title="Phase Distribution" />
+               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                     <BarChart data={[
+                        { name: 'Design', count: myDeptProjects.filter(p => p.phase === ProjectPhase.DESIGN).length },
+                        { name: 'Dev', count: myDeptProjects.filter(p => p.phase === ProjectPhase.DEVELOPMENT).length },
+                        { name: 'Test', count: myDeptProjects.filter(p => p.phase === ProjectPhase.TESTING).length },
+                        { name: 'Impl', count: myDeptProjects.filter(p => p.phase === ProjectPhase.IMPLEMENTATION).length },
+                     ]}>
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                        <Tooltip cursor={{fill: 'transparent'}} />
+                        <Bar dataKey="count" fill="#4f46e5" radius={[4, 4, 4, 4]} barSize={40} />
+                     </BarChart>
+                  </ResponsiveContainer>
+               </div>
+            </div>
+         </div>
+      </div>
+    );
+  };
+
+  // === HOD DASHBOARD ===
+  const HODDashboard = () => {
+    const deptUsers = allSystemUsers.filter(u => u.collegeId === user.collegeId && u.department === user.department);
+    const students = deptUsers.filter(u => u.role === UserRole.STUDENT);
+    const lecturers = deptUsers.filter(u => u.role === UserRole.LECTURER);
+    
+    // Estimate dept projects by finding projects owned by dept students
+    const studentIds = students.map(s => s.id);
+    const deptProjects = projects.filter(p => studentIds.includes(p.studentId));
+
+    return (
+       <div className="space-y-8 animate-fade-in">
+          <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
+             <div>
+                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full uppercase tracking-wider mb-2 inline-block">Head of Department</span>
+                <h1 className="text-3xl font-bold text-slate-900">{user.department}</h1>
+                <p className="text-slate-500 mt-1">Manage faculty, curriculum, and student performance.</p>
+             </div>
+             <div className="flex gap-3">
+                <button onClick={() => setShowAnalyticsModal(true)} className="px-5 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-2">
+                   <BarChart2 size={18} /> Department Reports
+                </button>
+             </div>
+          </div>
+
+          <PendingApprovalsAlert />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+             <StatCard title="Faculty Members" value={lecturers.length} icon={UserCog} color="bg-purple-600" />
+             <StatCard title="Total Students" value={students.length} icon={GraduationCap} color="bg-blue-600" />
+             <StatCard title="Active Projects" value={deptProjects.length} icon={FolderKanban} color="bg-indigo-600" />
+             <StatCard title="Avg Project Score" value="82" icon={Target} color="bg-green-600" suffix="/ 100" />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+             <div className="lg:col-span-2">
+                <SectionHeader title="Department Activity" />
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 h-80">
+                   {/* Mock Activity Chart */}
+                   <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={[
+                         { name: 'Week 1', projects: 4, submissions: 10 },
+                         { name: 'Week 2', projects: 7, submissions: 15 },
+                         { name: 'Week 3', projects: 12, submissions: 8 },
+                         { name: 'Week 4', projects: 18, submissions: 25 },
+                      ]}>
+                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                         <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                         <YAxis axisLine={false} tickLine={false} />
+                         <Tooltip />
+                         <Legend />
+                         <Line type="monotone" dataKey="projects" stroke="#4f46e5" strokeWidth={3} dot={{r: 4}} />
+                         <Line type="monotone" dataKey="submissions" stroke="#10b981" strokeWidth={3} dot={{r: 4}} />
+                      </LineChart>
+                   </ResponsiveContainer>
+                </div>
+             </div>
+
+             <div>
+                <SectionHeader title="Recent Announcements" action={<button className="text-blue-600 text-xs font-bold"><Plus size={14} /></button>} />
+                <div className="space-y-4">
+                   {announcements.filter(a => a.targetRole === 'All' || a.targetRole === UserRole.HOD || a.targetRole === UserRole.LECTURER).slice(0, 3).map(a => (
+                      <div key={a.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                         <span className="text-[10px] font-bold text-slate-400 uppercase">{a.date}</span>
+                         <h4 className="font-bold text-slate-800 text-sm mt-1">{a.title}</h4>
+                         <p className="text-xs text-slate-500 mt-2 line-clamp-2">{a.content}</p>
+                      </div>
+                   ))}
+                   {announcements.length === 0 && <p className="text-slate-400 text-sm">No announcements.</p>}
+                </div>
+             </div>
+          </div>
+       </div>
+    );
+  };
+
+  // === PRINCIPAL DASHBOARD ===
+  const PrincipalDashboard = () => {
+    const collegeUsers = allSystemUsers.filter(u => u.collegeId === user.collegeId);
+    const activeCompetitions = competitions.filter(c => c.status === CompetitionStatus.ONGOING);
+    // Find departments dynamically
+    const departments = Array.from(new Set(collegeUsers.map(u => u.department).filter(Boolean)));
+
+    return (
+       <div className="space-y-8 animate-fade-in">
+          <div className="flex justify-between items-end mb-2">
+             <div>
+                <h1 className="text-3xl font-bold text-slate-900">Institution Dashboard</h1>
+                <p className="text-slate-500 mt-1">{collegeList.find(c => c.id === user.collegeId)?.name || 'Campus Overview'}</p>
+             </div>
+             <div className="flex gap-2">
+                <button className="p-3 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50"><Calendar size={20} /></button>
+                <button className="p-3 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50"><FileText size={20} /></button>
+             </div>
+          </div>
+
+          <PendingApprovalsAlert />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+             <StatCard title="Active Departments" value={departments.length} icon={Building2} color="bg-blue-600" />
+             <StatCard title="Total Students" value={collegeUsers.filter(u => u.role === UserRole.STUDENT).length} icon={Users} color="bg-indigo-600" />
+             <StatCard title="Ongoing Competitions" value={activeCompetitions.length} icon={Trophy} color="bg-orange-500" />
+             <StatCard title="Research Output" value="High" icon={BookOpen} color="bg-green-600" suffix="Top 10%" />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+             <div>
+                <SectionHeader title="Department Enrollment" />
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 h-80">
+                   <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={departments.map(dept => ({
+                         name: dept,
+                         students: collegeUsers.filter(u => u.department === dept && u.role === UserRole.STUDENT).length
+                      }))} layout="vertical">
+                         <XAxis type="number" hide />
+                         <YAxis dataKey="name" type="category" width={120} tick={{fontSize: 11}} />
+                         <Tooltip cursor={{fill: '#f8fafc'}} />
+                         <Bar dataKey="students" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={24} />
+                      </BarChart>
+                   </ResponsiveContainer>
+                </div>
+             </div>
+
+             <div>
+                <SectionHeader title="Competition Participation" />
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 h-80 flex items-center justify-center">
+                    {/* Mock Pie Chart */}
+                    <ResponsiveContainer width="100%" height="100%">
+                       <PieChart>
+                          <Pie data={[
+                             { name: 'Hackathons', value: 45, fill: '#3b82f6' },
+                             { name: 'Research', value: 25, fill: '#8b5cf6' },
+                             { name: 'Robotics', value: 15, fill: '#10b981' },
+                             { name: 'Debate', value: 15, fill: '#f59e0b' },
+                          ]} dataKey="value" innerRadius={60} outerRadius={80} paddingAngle={5}>
+                             <Cell fill="#3b82f6" />
+                             <Cell fill="#8b5cf6" />
+                             <Cell fill="#10b981" />
+                             <Cell fill="#f59e0b" />
+                          </Pie>
+                          <Tooltip />
+                          <Legend />
+                       </PieChart>
+                    </ResponsiveContainer>
+                </div>
+             </div>
+          </div>
+       </div>
+    );
+  };
+
+  // === ADMIN DASHBOARD ===
+  const AdminDashboard = () => {
     const totalUsers = allSystemUsers.length;
     const activeCompetitions = competitions.filter(c => c.status === CompetitionStatus.ONGOING).length;
-
-    // Analytics Data Prep
-    const roleStats = [
-      { name: 'Students', value: allSystemUsers.filter(u => u.role === UserRole.STUDENT).length, color: '#f97316' },
-      { name: 'Lecturers', value: allSystemUsers.filter(u => u.role === UserRole.LECTURER).length, color: '#22c55e' },
-      { name: 'HODs', value: allSystemUsers.filter(u => u.role === UserRole.HOD).length, color: '#a855f7' },
-      { name: 'Principals', value: allSystemUsers.filter(u => u.role === UserRole.PRINCIPAL).length, color: '#eab308' },
-      { name: 'Admins', value: allSystemUsers.filter(u => u.role === UserRole.ADMIN).length, color: '#ef4444' },
-    ].filter(i => i.value > 0);
-
-    const projectPhaseStats = [
-        { name: 'Design', value: projects.filter(p => p.phase === ProjectPhase.DESIGN).length },
-        { name: 'Dev', value: projects.filter(p => p.phase === ProjectPhase.DEVELOPMENT).length },
-        { name: 'Test', value: projects.filter(p => p.phase === ProjectPhase.TESTING).length },
-        { name: 'Deploy', value: projects.filter(p => p.phase === ProjectPhase.IMPLEMENTATION).length },
-    ];
-
+    
     return (
       <div className="space-y-6 animate-fade-in relative pb-20">
         {/* Header */}
@@ -265,24 +553,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
           </div>
         </div>
 
-        {/* Pending Alerts */}
-        {pendingUsers.length > 0 && (
-          <div className="bg-white border-l-4 border-yellow-400 rounded-xl p-4 shadow-sm flex items-center justify-between">
-             <div className="flex items-center gap-3">
-               <div className="p-2 bg-yellow-50 text-yellow-600 rounded-lg"><UserCheck size={20} /></div>
-               <div>
-                 <h3 className="font-bold text-slate-800">{pendingUsers.length} Pending Principals</h3>
-                 <p className="text-xs text-slate-500">Review new institution registrations</p>
-               </div>
-             </div>
-             <div className="flex gap-2">
-                 {pendingUsers.slice(0,3).map(u => (
-                     <img key={u.id} src={u.avatar} className="w-8 h-8 rounded-full border-2 border-white shadow-sm" alt="" />
-                 ))}
-                 {pendingUsers.length > 3 && <span className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-full text-xs font-bold text-slate-500">+{pendingUsers.length-3}</span>}
-             </div>
-          </div>
-        )}
+        <PendingApprovalsAlert />
 
         {/* Main Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -304,7 +575,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                  <BarChart2 size={24} className="text-slate-400 group-hover:text-purple-600" />
                  <span className="font-semibold text-sm">Analytics</span>
               </button>
-              {/* Add more admin actions here */}
            </div>
         </div>
 
@@ -346,9 +616,35 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
               ))}
            </div>
         </div>
-        
-        {/* Modals & Analytics (Hidden by default) */}
-        {showAddCollegeModal && (
+      </div>
+    );
+  };
+
+  // --- 5. RENDER LOGIC ---
+
+  const renderDashboard = () => {
+    switch (user.role) {
+      case UserRole.STUDENT:
+        return <StudentDashboard />;
+      case UserRole.LECTURER:
+        return <LecturerDashboard />;
+      case UserRole.HOD:
+        return <HODDashboard />;
+      case UserRole.PRINCIPAL:
+        return <PrincipalDashboard />;
+      case UserRole.ADMIN:
+        return <AdminDashboard />;
+      default:
+        return <div>Unknown Role</div>;
+    }
+  };
+
+  return (
+    <div className="pb-20">
+       {renderDashboard()}
+
+       {/* MODALS */}
+       {showAddCollegeModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
             <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl p-6">
               <div className="flex justify-between items-center mb-6">
@@ -402,9 +698,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
               </form>
             </div>
           </div>
-        )}
+       )}
 
-        {showAnalyticsModal && (
+       {showAnalyticsModal && (
            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
               <div className="bg-slate-50 w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl flex flex-col">
                  <div className="p-6 bg-white border-b border-slate-200 sticky top-0 z-10 flex justify-between items-center rounded-t-3xl">
@@ -417,8 +713,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                        <div className="h-64">
                           <ResponsiveContainer width="100%" height="100%">
                              <PieChart>
-                                <Pie data={roleStats} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                                   {roleStats.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                                <Pie 
+                                   data={[
+                                      { name: 'Students', value: allSystemUsers.filter(u => u.role === UserRole.STUDENT).length, fill: '#f97316' },
+                                      { name: 'Lecturers', value: allSystemUsers.filter(u => u.role === UserRole.LECTURER).length, fill: '#22c55e' },
+                                      { name: 'HODs', value: allSystemUsers.filter(u => u.role === UserRole.HOD).length, fill: '#a855f7' },
+                                      { name: 'Principals', value: allSystemUsers.filter(u => u.role === UserRole.PRINCIPAL).length, fill: '#eab308' },
+                                   ]} 
+                                   innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value"
+                                >
                                 </Pie>
                                 <Tooltip />
                                 <Legend verticalAlign="bottom" height={36} iconType="circle" />
@@ -426,234 +729,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                           </ResponsiveContainer>
                        </div>
                     </div>
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                       <h3 className="font-bold text-slate-800 mb-6">Project Pipeline</h3>
-                       <div className="h-64">
-                          <ResponsiveContainer width="100%" height="100%">
-                             <BarChart data={projectPhaseStats} layout="vertical" margin={{left: 20}}>
-                                <XAxis type="number" hide />
-                                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} width={80} />
-                                <Tooltip />
-                                <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} />
-                             </BarChart>
-                          </ResponsiveContainer>
-                       </div>
+                    {/* Placeholder for more specific charts based on role */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-center">
+                       <p className="text-slate-400">Detailed performance metrics coming soon.</p>
                     </div>
                  </div>
               </div>
            </div>
-        )}
-      </div>
-    );
-  }
-
-  // --- VIEW: PRINCIPAL, HOD, LECTURER, STUDENT ---
-  return (
-    <div className="space-y-6 animate-fade-in relative pb-20">
-      
-      {/* Welcome Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Welcome back, {user.firstName}!</h1>
-          <p className="text-slate-500">{dashboardStats?.title || "Here's what's happening today."}</p>
-        </div>
-      </div>
-
-      {/* Unified Pending Approvals Alert (For Approver Roles) */}
-      {pendingUsers.length > 0 && user.role !== UserRole.STUDENT && (
-        <div className="bg-white border border-yellow-200 bg-yellow-50/50 rounded-2xl p-6 shadow-sm animate-fade-in">
-           <div className="flex items-center gap-2 mb-4">
-             <div className="relative">
-                <UserCheck className="text-yellow-600" size={24} />
-                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
-             </div>
-             <div>
-               <h3 className="font-bold text-lg text-slate-800">Pending Approvals</h3>
-               <p className="text-xs text-slate-500">
-                 {user.role === UserRole.PRINCIPAL && "Review HOD registrations for your college."}
-                 {user.role === UserRole.HOD && "Review Lecturer registrations for your department."}
-                 {user.role === UserRole.LECTURER && "Review Student registrations."}
-               </p>
-             </div>
-             <span className="ml-auto bg-yellow-200 text-yellow-800 text-xs font-bold px-2 py-0.5 rounded-full">{pendingUsers.length}</span>
-           </div>
-           
-           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-             {pendingUsers.map(u => (
-               <div key={u.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-3">
-                 <div className="flex items-start justify-between">
-                   <div className="flex items-center gap-3">
-                     <img src={u.avatar} alt="" className="w-10 h-10 rounded-full bg-slate-100" />
-                     <div>
-                       <p className="font-bold text-slate-800 text-sm">{u.name}</p>
-                       <p className="text-xs text-slate-500 font-medium">{u.role}</p>
-                     </div>
-                   </div>
-                   <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded">{u.uniqueId}</span>
-                 </div>
-                 
-                 <div className="text-xs text-slate-600 bg-slate-50 p-2 rounded-lg space-y-1">
-                   {(u.department) && <div><strong>Dept:</strong> {u.department}</div>}
-                   {u.academicBackground && <div className="italic">"{u.academicBackground}"</div>}
-                   {u.role === UserRole.STUDENT && <div>{u.academicYear}, Section {u.section}</div>}
-                   <div className="text-[10px] text-slate-400 mt-1">{u.email}</div>
-                 </div>
-
-                 <div className="flex gap-2 mt-auto pt-2">
-                   <button onClick={() => handleReject(u.id)} className="flex-1 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1">
-                     <XCircle size={14} /> Reject
-                   </button>
-                   <button onClick={() => handleApprove(u.id)} className="flex-1 py-2 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1">
-                     <CheckCircle2 size={14} /> Approve
-                   </button>
-                 </div>
-               </div>
-             ))}
-           </div>
-        </div>
-      )}
-
-      {/* Role Based Stats Grid */}
-      {dashboardStats && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-           {dashboardStats.stats.map((stat: any, idx: number) => (
-               <StatCard 
-                 key={idx}
-                 title={stat.label}
-                 value={stat.value}
-                 icon={stat.icon}
-                 color={stat.color}
-                 suffix={stat.suffix}
-               />
-           ))}
-        </div>
-      )}
-      
-      {/* Role Specific Quick Actions */}
-      {quickActions.length > 0 && (
-         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {quickActions.map((action, idx) => (
-                <button 
-                  key={idx}
-                  onClick={action.onClick}
-                  className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md hover:border-blue-100 transition-all group"
-                >
-                   <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-lg ${action.bg} ${action.color}`}>
-                         <action.icon size={20} />
-                      </div>
-                      <span className="font-semibold text-slate-700 text-sm group-hover:text-blue-700 transition-colors">{action.label}</span>
-                   </div>
-                   <ChevronRight size={16} className="text-slate-300 group-hover:text-blue-400" />
-                </button>
-            ))}
-         </div>
-      )}
-
-      {/* Main Content Grid (Projects & Announcements) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Left Column: Projects Overview */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <h3 className="font-bold text-lg text-slate-800 mb-4">
-                {user.role === UserRole.STUDENT ? "My Project Scores" : "Department Progress"}
-            </h3>
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={projects}>
-                  <XAxis dataKey="title" tick={{fontSize: 12}} interval={0} height={40} tickFormatter={(val) => val.length > 10 ? `${val.substring(0,10)}...` : val} />
-                  <YAxis />
-                  <Tooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}} />
-                  <Bar dataKey="score" fill="#3b82f6" radius={[4, 4, 0, 0]}>
-                    {projects.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.score > 80 ? '#22c55e' : '#3b82f6'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-             <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                <h3 className="font-bold text-lg text-slate-800">
-                    {user.role === UserRole.STUDENT ? "Recent Projects" : "Recently Updated Projects"}
-                </h3>
-             </div>
-             <div className="divide-y divide-slate-100">
-               {projects.slice(0, 5).map(project => (
-                 <div key={project.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between">
-                   <div className="flex items-start gap-3">
-                     <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center font-bold text-slate-500">
-                       {project.title.substring(0, 2).toUpperCase()}
-                     </div>
-                     <div>
-                       <h4 className="font-semibold text-slate-800">{project.title}</h4>
-                       <p className="text-xs text-slate-500">{project.teamName}</p>
-                     </div>
-                   </div>
-                   <div className="flex flex-col items-end gap-1">
-                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                       project.phase === 'Implementation' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
-                     }`}>
-                       {project.phase}
-                     </span>
-                     <span className="text-xs text-slate-400">{project.lastUpdated}</span>
-                   </div>
-                 </div>
-               ))}
-               {projects.length === 0 && (
-                 <div className="p-8 text-center text-slate-400">No projects found.</div>
-               )}
-             </div>
-          </div>
-        </div>
-
-        {/* Right Column: Announcements */}
-        <div className="space-y-6">
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-            <h3 className="font-bold text-lg text-slate-800 mb-4">Announcements</h3>
-            <div className="space-y-4">
-              {announcements.map(announcement => (
-                <div key={announcement.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                      {announcement.targetRole === 'All' ? 'Everyone' : announcement.targetRole}
-                    </span>
-                    <span className="text-xs text-slate-400">{announcement.date}</span>
-                  </div>
-                  <h4 className="font-medium text-slate-800 text-sm">{announcement.title}</h4>
-                  <p className="text-xs text-slate-500 mt-1">{announcement.content}</p>
-                </div>
-              ))}
-              {announcements.length === 0 && <p className="text-slate-400 text-sm">No new announcements.</p>}
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      {/* Analytics Modal Re-used for HOD/Principal/Lecturer */}
-      {showAnalyticsModal && (
-           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
-              <div className="bg-slate-50 w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl flex flex-col">
-                 <div className="p-6 bg-white border-b border-slate-200 sticky top-0 z-10 flex justify-between items-center rounded-t-3xl">
-                    <h2 className="text-xl font-bold text-slate-900">
-                        {user.role === UserRole.LECTURER ? 'Class Performance' : 'Department Analytics'}
-                    </h2>
-                    <button onClick={() => setShowAnalyticsModal(false)} className="p-2 hover:bg-slate-100 rounded-full"><X size={24} /></button>
-                 </div>
-                 <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 col-span-2">
-                         <div className="h-64 flex items-center justify-center text-slate-400 flex-col">
-                            <BarChart2 size={48} className="mb-2 opacity-20" />
-                            <p>Detailed analytics module is under development.</p>
-                         </div>
-                     </div>
-                 </div>
-              </div>
-           </div>
-        )}
+       )}
     </div>
   );
 };
