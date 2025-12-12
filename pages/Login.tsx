@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole, College } from '../types';
 import { RoleCard } from '../components/RoleCard';
-import { login } from '../services/authService';
-import { registerUser, getColleges, resetDatabase, getAllUsers } from '../services/dataService';
-import { Trophy, AlertCircle, Loader2, School, LogIn, UserPlus, Info, RefreshCw } from 'lucide-react';
+// Use the new firebase auth functions
+import { firebaseLogin, firebaseSignup, login as mockLogin } from '../services/authService';
+import { getColleges, resetDatabase } from '../services/dataService';
+import { Trophy, AlertCircle, Loader2, School, LogIn, UserPlus, Info, RefreshCw, Upload } from 'lucide-react';
 import { PWAInstallPrompt } from '../components/PWAInstallPrompt';
 import { DEPARTMENTS, ACADEMIC_YEARS } from '../constants';
 
@@ -22,18 +23,22 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
   // Signup Form State
   const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
+    name: '', // Combined name
     email: '',
-    uniqueId: '',
-    phoneNumber: '',
+    password: '',
+    repeatPassword: '',
     role: UserRole.STUDENT,
+    // Maintaining these for UI consistency although unused in Firebase auth strictly
+    collegeId: '',
     department: '',
     academicYear: '',
     section: '',
-    academicBackground: '',
-    password: ''
+    uniqueId: '',
+    phoneNumber: ''
   });
+  
+  // File state for Profile Photo
+  const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
 
   // Login Form State
   const [loginEmail, setLoginEmail] = useState('');
@@ -67,7 +72,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setIsLoading(true);
     setError(null);
     try {
-      const { user, error: loginError } = await login(email, role, selectedCollege);
+      // Keep mock login for Demo functionality
+      const { user, error: loginError } = await mockLogin(email, role, selectedCollege);
       if (loginError) throw new Error(loginError);
       if (user) onLoginSuccess(user);
     } catch (err: any) {
@@ -82,11 +88,16 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setIsLoading(true);
     setError(null);
     try {
-      const { user, error: loginError } = await login(loginEmail, undefined, selectedCollege);
-      if (loginError) throw new Error(loginError);
-      if (user) onLoginSuccess(user);
+      // Use Firebase Login
+      const { user, error: loginError } = await firebaseLogin(loginEmail, loginPassword);
+      
+      if (loginError) {
+        setError(loginError); // Will display "Password or Email Incorrect"
+      } else if (user) {
+        onLoginSuccess(user);
+      }
     } catch (err: any) {
-      setError(err.message || 'Login failed');
+      setError('An unexpected error occurred.');
     } finally {
       setIsLoading(false);
     }
@@ -98,50 +109,30 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setError(null);
 
     // Validation
-    if (!selectedCollege) {
-      setError("Please select an institution.");
+    if (!formData.name || !formData.email || !formData.password || !formData.repeatPassword) {
+      setError("Please fill in all required fields.");
       setIsLoading(false);
       return;
     }
 
-    if (!formData.firstName || !formData.lastName || !formData.uniqueId || !formData.phoneNumber || !formData.email || !formData.password) {
-      setError("Please fill in all required basic fields.");
-      setIsLoading(false);
-      return;
-    }
-
-    if ((formData.role === UserRole.HOD || formData.role === UserRole.LECTURER || formData.role === UserRole.STUDENT) && !formData.department) {
-      setError("Please select a department.");
-      setIsLoading(false);
-      return;
-    }
-
-    if (formData.role === UserRole.STUDENT && (!formData.academicYear || !formData.section)) {
-      setError("Please provide academic year and section.");
+    if (formData.password !== formData.repeatPassword) {
+      setError("Passwords do not match.");
       setIsLoading(false);
       return;
     }
 
     try {
-      let approvalMsg = "Signup successful!";
-      if (formData.role === UserRole.PRINCIPAL) approvalMsg += " Pending Administrator approval.";
-      else if (formData.role === UserRole.HOD) approvalMsg += " Pending Principal approval.";
-      else if (formData.role === UserRole.LECTURER) approvalMsg += " Pending HOD approval.";
-      else if (formData.role === UserRole.STUDENT) approvalMsg += " Pending Lecturer approval.";
+      // Use Firebase Signup
+      const { user, error: signupError } = await firebaseSignup(formData.email, formData.password, formData.name);
 
-      await registerUser({
-        ...formData,
-        collegeId: selectedCollege,
-        status: 'Pending' 
-      });
-
-      setSuccessMsg(approvalMsg);
-      // Reset form
-      setFormData({
-        firstName: '', lastName: '', email: '', uniqueId: '', phoneNumber: '',
-        role: UserRole.STUDENT, department: '', academicYear: '', section: '',
-        academicBackground: '', password: ''
-      });
+      if (signupError) {
+        setError(signupError); // Will display "User already exists. Sign in?"
+      } else if (user) {
+        // If we were saving user info, we would handle profile photo upload here
+        // For now, just authenticate
+        setSuccessMsg("Account created successfully!");
+        onLoginSuccess(user);
+      }
       
     } catch (err: any) {
       setError(err.message || 'Signup failed');
@@ -182,7 +173,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         )}
 
         {/* College Selector (Global - Visible for Demo/Login) */}
-        {colleges.length > 0 && activeTab !== 'signup' && (
+        {colleges.length > 0 && activeTab === 'demo' && (
           <div className="mb-6">
             <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Select Institution</label>
             <div className="relative">
@@ -294,16 +285,50 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         {activeTab === 'signup' && (
           <form onSubmit={handleSignup} className="space-y-4 animate-fade-in max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
             
-            {/* Institution Selector for Signup */}
+            {/* Profile Photo Upload */}
             <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Institution</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Profile Photo</label>
+              <div className="flex items-center justify-center w-full">
+                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-200 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100">
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        {profilePhoto ? (
+                             <div className="flex flex-col items-center">
+                                <span className="text-sm text-green-600 font-semibold mb-1">Photo Selected</span>
+                                <span className="text-xs text-slate-500">{profilePhoto.name}</span>
+                             </div>
+                        ) : (
+                            <>
+                                <Upload className="w-8 h-8 text-slate-400 mb-2" />
+                                <p className="text-sm text-slate-500"><span className="font-semibold">Click to upload</span></p>
+                            </>
+                        )}
+                    </div>
+                    <input type="file" className="hidden" accept="image/*" onChange={(e) => e.target.files && setProfilePhoto(e.target.files[0])} />
+                </label>
+              </div>
+            </div>
+
+            {/* Basic Info */}
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Full Name</label>
+              <input 
+                type="text" required
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                value={formData.name}
+                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                placeholder="Jane Doe"
+              />
+            </div>
+
+            {/* Institution Selector for Signup */}
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Institution</label>
               <div className="relative">
                 <School className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
                 <select 
-                  required
                   value={selectedCollege} 
                   onChange={(e) => setSelectedCollege(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-medium appearance-none cursor-pointer"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-medium appearance-none cursor-pointer text-sm"
                 >
                   <option value="" disabled>Select College</option>
                   {colleges.map(c => (
@@ -314,12 +339,12 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             </div>
 
             {/* Role Selection */}
-             <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-700 mb-1">I am a...</label>
+             <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Role</label>
               <select 
                 value={formData.role}
                 onChange={(e) => setFormData({...formData, role: e.target.value as UserRole})}
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-blue-700"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold text-blue-700 text-sm"
               >
                 {Object.values(UserRole).filter(r => r !== UserRole.ADMIN).map(role => (
                   <option key={role} value={role}>{role}</option>
@@ -327,114 +352,21 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">First Name</label>
-                <input 
-                  type="text" required
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={formData.firstName}
-                  onChange={(e) => setFormData({...formData, firstName: e.target.value})}
-                  placeholder="Jane"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Last Name</label>
-                <input 
-                  type="text" required
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={formData.lastName}
-                  onChange={(e) => setFormData({...formData, lastName: e.target.value})}
-                  placeholder="Doe"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Unique ID</label>
-                <input 
-                  type="text" required
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={formData.uniqueId}
-                  onChange={(e) => setFormData({...formData, uniqueId: e.target.value})}
-                  placeholder="ID-12345"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Phone</label>
-                <input 
-                  type="tel" required
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={formData.phoneNumber}
-                  onChange={(e) => setFormData({...formData, phoneNumber: e.target.value})}
-                  placeholder="555-0000"
-                />
-              </div>
-            </div>
-
-            {/* Department Selection (HOD, Lecturer, Student) */}
-            {(formData.role === UserRole.HOD || formData.role === UserRole.LECTURER || formData.role === UserRole.STUDENT) && (
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Department</label>
-                <select 
-                  required
-                  value={formData.department}
-                  onChange={(e) => setFormData({...formData, department: e.target.value})}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                >
-                  <option value="">Select Department</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-                {formData.role === UserRole.HOD && (
-                  <p className="text-[10px] text-slate-400 mt-1">Select the department you head.</p>
-                )}
-              </div>
-            )}
-
-            {/* Student Specific Fields */}
-            {formData.role === UserRole.STUDENT && (
-               <div className="grid grid-cols-2 gap-4">
-                 <div>
-                   <label className="block text-xs font-medium text-slate-700 mb-1">Academic Year</label>
-                   <select 
-                      required
-                      value={formData.academicYear}
-                      onChange={(e) => setFormData({...formData, academicYear: e.target.value})}
-                      className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                   >
-                     <option value="">Year</option>
-                     {ACADEMIC_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-                   </select>
-                 </div>
-                 <div>
-                   <label className="block text-xs font-medium text-slate-700 mb-1">Section</label>
-                   <input 
-                      type="text" required
-                      className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                      value={formData.section}
-                      onChange={(e) => setFormData({...formData, section: e.target.value})}
-                      placeholder="e.g. A"
-                   />
-                 </div>
-               </div>
-            )}
-
-            {/* Info Dialog Box (Principal, HOD, Lecturer) */}
-            {(formData.role === UserRole.PRINCIPAL || formData.role === UserRole.HOD || formData.role === UserRole.LECTURER) && (
-               <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                 <div className="flex items-center gap-2 mb-2 text-blue-800">
-                    <Info size={16} />
-                    <span className="text-xs font-bold">Academic Background / Info</span>
-                 </div>
-                 <textarea 
-                    className="w-full p-2 rounded-lg border border-blue-200 focus:ring-2 focus:ring-blue-400 outline-none text-sm text-slate-700"
-                    rows={3}
-                    placeholder="Briefly describe your academic background..."
-                    value={formData.academicBackground}
-                    onChange={(e) => setFormData({...formData, academicBackground: e.target.value})}
-                 />
-               </div>
+            {/* Extra Role Fields (Optional for generic auth, but good for UX if needed) */}
+            {formData.role !== UserRole.ADMIN && (
+               <>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Department</label>
+                    <select 
+                      value={formData.department}
+                      onChange={(e) => setFormData({...formData, department: e.target.value})}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                    >
+                      <option value="">Select Department (Optional)</option>
+                      {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+               </>
             )}
 
             <div>
@@ -447,23 +379,28 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 placeholder="name@college.edu"
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Create Password</label>
-              <input 
-                type="password" required
-                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                value={formData.password}
-                onChange={(e) => setFormData({...formData, password: e.target.value})}
-                placeholder="••••••••"
-              />
-            </div>
-
-            <div className="p-3 bg-yellow-50 text-yellow-800 text-xs rounded-lg flex gap-2">
-               <AlertCircle size={16} className="shrink-0" />
-               {formData.role === UserRole.PRINCIPAL && "Requires Administrator approval."}
-               {formData.role === UserRole.HOD && "Requires Principal approval."}
-               {formData.role === UserRole.LECTURER && "Requires HOD approval."}
-               {formData.role === UserRole.STUDENT && "Requires Lecturer approval."}
+            
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Password</label>
+                  <input 
+                    type="password" required
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={formData.password}
+                    onChange={(e) => setFormData({...formData, password: e.target.value})}
+                    placeholder="••••••••"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Repeat Password</label>
+                  <input 
+                    type="password" required
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={formData.repeatPassword}
+                    onChange={(e) => setFormData({...formData, repeatPassword: e.target.value})}
+                    placeholder="••••••••"
+                  />
+                </div>
             </div>
 
             <button 
@@ -471,7 +408,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               disabled={isLoading}
               className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors flex justify-center items-center gap-2 mt-4"
             >
-              {isLoading ? <Loader2 className="animate-spin" /> : <><UserPlus size={18} /> Create Account</>}
+              {isLoading ? <Loader2 className="animate-spin" /> : <><UserPlus size={18} /> Sign Up</>}
             </button>
           </form>
         )}
