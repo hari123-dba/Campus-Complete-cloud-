@@ -1,7 +1,4 @@
-import { db } from '../lib/firebase';
-import { supabase } from '../lib/supabase';
-import { collection, getDocs, addDoc, setDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { Competition, CompetitionStatus, Project, ProjectPhase, Announcement, UserRole, Team, User, College, UserStatus, ActivityLog, TeamMember } from '../types';
+import { Competition, CompetitionStatus, Project, ProjectPhase, Announcement, UserRole, Team, User, College, ActivityLog, TeamMember } from '../types';
 
 // --- MOCK SEED DATA (For Demo/Offline Mode) ---
 const SEED_COLLEGES: College[] = [
@@ -109,182 +106,35 @@ const logActivity = async (actor: User | null, action: string, details: string, 
 
   _logs = [newLog, ..._logs].slice(0, 50);
   saveToLocal('logs', _logs);
-
-  if (supabase) {
-      try {
-          await supabase.from('system_logs').insert({
-              id: newLog.id,
-              actor_id: newLog.actorId,
-              actor_name: newLog.actorName,
-              action: newLog.action,
-              details: newLog.details,
-              type: newLog.type,
-              created_at: newLog.timestamp
-          });
-      } catch (e) { console.error("Supabase log failed", e); }
-  }
 };
 
 // --- INITIALIZATION ---
 export const initializeDatabase = async () => {
-  console.log('Initializing Data Service...');
-  let usedRemote = false;
-
-  // 1. Try Supabase
-  if (supabase) {
-    try {
-        console.log('Connecting to Supabase...');
-        
-        // Load Colleges
-        const { data: colData } = await supabase.from('colleges').select('*');
-        if (colData && colData.length > 0) {
-            _colleges = colData.map((c: any) => ({
-                id: c.id,
-                name: c.name,
-                emailId: c.email_id,
-                website: c.website,
-                address: c.address,
-                contactPhone: c.contact_phone,
-                status: c.status,
-                createdAt: c.created_at
-            }));
-            usedRemote = true;
-        }
-
-        // Load Users
-        const { data: usersData } = await supabase.from('users_profile').select('*');
-        if (usersData) {
-            _users = usersData.map((u: any) => ({
-                id: u.id,
-                firstName: u.first_name,
-                lastName: u.last_name,
-                name: `${u.first_name} ${u.last_name}`,
-                email: u.email,
-                role: u.role as UserRole,
-                avatar: u.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.first_name}`,
-                collegeId: u.college_id,
-                status: u.status,
-                uniqueId: u.unique_id,
-                phoneNumber: u.phone_number,
-                department: u.department,
-                academicBackground: u.academic_background,
-                academicYear: u.academic_year,
-                section: u.section
-            }));
-            usedRemote = true; // Confirm remote usage if users found
-        }
-
-        // Load Competitions
-        const { data: compsData } = await supabase.from('competitions').select('*');
-        if (compsData) {
-            _competitions = compsData.map((c: any) => ({
-                id: c.id,
-                title: c.title,
-                description: c.description,
-                status: c.status,
-                date: c.start_date,
-                participants: c.participants_count || 0,
-                bannerUrl: c.banner_url
-            }));
-        }
-
-        // Load Projects
-        const { data: projsData } = await supabase.from('projects').select('*');
-        if (projsData) {
-             _projects = projsData.map((p: any) => ({
-                 id: p.id,
-                 title: p.title,
-                 description: p.description,
-                 teamName: p.team_name,
-                 studentId: p.student_id,
-                 competitionId: p.competition_id,
-                 phase: p.current_phase,
-                 score: p.score,
-                 lastUpdated: p.last_updated ? new Date(p.last_updated).toLocaleDateString() : 'N/A'
-             }));
-        }
-
-        // Load Teams & Members
-        // We fetch teams and their members (joined table)
-        const { data: teamsData, error: teamError } = await supabase
-            .from('teams')
-            .select(`
-                *,
-                team_members (
-                    user_id,
-                    role
-                )
-            `);
-            
-        if (teamsData && !teamError) {
-             _teams = teamsData.map((t: any) => {
-                 // Map members using user data we already loaded
-                 const members = (t.team_members || []).map((tm: any) => {
-                     const u = _users.find(user => user.id === tm.user_id);
-                     return {
-                         userId: tm.user_id,
-                         role: tm.role,
-                         name: u ? u.name : 'Unknown User',
-                         avatar: u ? u.avatar : ''
-                     };
-                 });
-
-                 return {
-                     id: t.id,
-                     name: t.name,
-                     code: t.code,
-                     projectIds: t.project_ids || [],
-                     members: members
-                 };
-             });
-        }
-
-        // Load Announcements
-        const { data: annData } = await supabase.from('announcements').select('*');
-        if (annData) {
-            _announcements = annData.map((a: any) => ({
-                id: a.id,
-                title: a.title,
-                content: a.content,
-                targetRole: a.target_role,
-                date: new Date(a.created_at).toLocaleDateString()
-            }));
-        }
-        
-        console.log("Supabase data loaded successfully.");
-
-    } catch (err) {
-        console.error("Supabase load error:", err);
-    }
-  }
-
-  // 3. Fallback to LocalStorage / Seed
-  if (!usedRemote) {
-    console.log('Using LocalStorage/Seed Data (Offline Mode or Empty DB)');
-    const localColleges = localStorage.getItem('cc_colleges');
+  console.log('Initializing Data Service (Local Mode)...');
+  
+  const localColleges = localStorage.getItem('cc_colleges');
+  
+  if (localColleges && JSON.parse(localColleges).length > 0) {
+    _colleges = JSON.parse(localColleges);
+    _users = JSON.parse(localStorage.getItem('cc_users') || '[]');
+    _competitions = JSON.parse(localStorage.getItem('cc_competitions') || '[]');
+    _projects = JSON.parse(localStorage.getItem('cc_projects') || '[]');
+    _announcements = JSON.parse(localStorage.getItem('cc_announcements') || '[]');
+    _teams = JSON.parse(localStorage.getItem('cc_teams') || '[]');
+    _logs = JSON.parse(localStorage.getItem('cc_logs') || '[]');
+  } else {
+    console.log('Data Missing. Seeding Defaults.');
+    _colleges = SEED_COLLEGES;
+    _users = SEED_USERS;
+    _competitions = SEED_COMPETITIONS;
+    _projects = SEED_PROJECTS;
+    _announcements = SEED_ANNOUNCEMENTS;
     
-    if (localColleges && JSON.parse(localColleges).length > 0) {
-      _colleges = JSON.parse(localColleges);
-      _users = JSON.parse(localStorage.getItem('cc_users') || '[]');
-      _competitions = JSON.parse(localStorage.getItem('cc_competitions') || '[]');
-      _projects = JSON.parse(localStorage.getItem('cc_projects') || '[]');
-      _announcements = JSON.parse(localStorage.getItem('cc_announcements') || '[]');
-      _teams = JSON.parse(localStorage.getItem('cc_teams') || '[]');
-      _logs = JSON.parse(localStorage.getItem('cc_logs') || '[]');
-    } else {
-      console.log('Data Missing. Seeding Defaults.');
-      _colleges = SEED_COLLEGES;
-      _users = SEED_USERS;
-      _competitions = SEED_COMPETITIONS;
-      _projects = SEED_PROJECTS;
-      _announcements = SEED_ANNOUNCEMENTS;
-      
-      saveToLocal('colleges', _colleges);
-      saveToLocal('users', _users);
-      saveToLocal('competitions', _competitions);
-      saveToLocal('projects', _projects);
-      saveToLocal('announcements', _announcements);
-    }
+    saveToLocal('colleges', _colleges);
+    saveToLocal('users', _users);
+    saveToLocal('competitions', _competitions);
+    saveToLocal('projects', _projects);
+    saveToLocal('announcements', _announcements);
   }
 };
 
@@ -349,25 +199,6 @@ export const createTeam = async (name: string, user: User): Promise<Team> => {
   _teams = [..._teams, newTeam];
   saveToLocal('teams', _teams);
 
-  // Supabase Sync
-  if (supabase) {
-      try {
-          // 1. Create Team
-          await supabase.from('teams').insert({
-              id: teamId,
-              name: name,
-              code: code,
-              project_ids: []
-          });
-          // 2. Add Leader Member
-          await supabase.from('team_members').insert({
-              team_id: teamId,
-              user_id: user.id,
-              role: 'Leader'
-          });
-      } catch (e) { console.error("Supabase team create failed", e); }
-  }
-
   await logActivity(user, 'TEAM_CREATE', `Created new team "${name}" (Code: ${code})`, 'success');
   return newTeam;
 };
@@ -386,17 +217,6 @@ export const joinTeam = async (code: string, user: User): Promise<Team> => {
   if (teamIndex !== -1) {
     _teams[teamIndex].members.push(newMember);
     saveToLocal('teams', _teams);
-    
-    // Supabase Sync
-    if (supabase) {
-        try {
-            await supabase.from('team_members').insert({
-                team_id: team.id,
-                user_id: user.id,
-                role: 'Member'
-            });
-        } catch (e) { console.error("Supabase team join failed", e); }
-    }
   }
 
   await logActivity(user, 'TEAM_JOIN', `Joined team "${team.name}"`, 'success');
@@ -434,32 +254,6 @@ export const createProject = async (
     updatedTeam.projectIds.push(newProject.id);
     _teams[teamIndex] = updatedTeam;
     saveToLocal('teams', _teams);
-
-    // Supabase Update Team project_ids
-    if (supabase) {
-        try {
-            await supabase.from('teams').update({
-               project_ids: updatedTeam.projectIds
-            }).eq('id', teamId);
-        } catch (e) { console.error("Supabase team update failed", e); }
-    }
-  }
-
-  // Supabase Create Project
-  if (supabase) {
-    try {
-      await supabase.from('projects').insert({
-        id: newProject.id,
-        title: newProject.title,
-        description: newProject.description,
-        team_name: newProject.teamName,
-        student_id: newProject.studentId,
-        competition_id: newProject.competitionId,
-        current_phase: newProject.phase,
-        score: 0,
-        last_updated: new Date().toISOString()
-      });
-    } catch (e) { console.error("Supabase project create failed", e); }
   }
   
   await logActivity(user, 'PROJECT_CREATE', `Created project "${newProject.title}" for team ${team.name}`, 'success');
@@ -486,28 +280,6 @@ export const registerUser = async (userData: Partial<User>, specificId?: string)
   _users = [..._users, newUser];
   saveToLocal('users', _users);
 
-  // Supabase Sync
-  if (supabase) {
-      try {
-          await supabase.from('users_profile').insert({
-              id: newUser.id,
-              first_name: userData.firstName,
-              last_name: userData.lastName,
-              email: userData.email,
-              role: userData.role,
-              college_id: userData.collegeId,
-              status: newUser.status,
-              unique_id: userData.uniqueId,
-              phone_number: userData.phoneNumber,
-              department: userData.department,
-              academic_year: userData.academicYear,
-              section: userData.section,
-              academic_background: userData.academicBackground,
-              avatar_url: newUser.avatar
-          });
-      } catch (e) { console.error("Supabase register failed", e); }
-  }
-
   await logActivity(null, 'USER_REGISTER', `New registration: ${newUser.name} (${newUser.role})`, 'info');
   return newUser;
 };
@@ -520,12 +292,6 @@ export const approveUser = async (userId: string): Promise<void> => {
     _users[index] = { ...user, status: 'Active' };
     saveToLocal('users', _users);
     
-    if (supabase) {
-        try {
-            await supabase.from('users_profile').update({ status: 'Active' }).eq('id', userId);
-        } catch (e) { console.error("Supabase approve failed", e); }
-    }
-
     await logActivity(null, 'USER_APPROVE', `Approved access for ${user.name}`, 'success');
   }
 };
@@ -537,12 +303,6 @@ export const rejectUser = async (userId: string): Promise<void> => {
     _users[index] = { ...user, status: 'Rejected' };
     saveToLocal('users', _users);
     
-    if (supabase) {
-        try {
-            await supabase.from('users_profile').update({ status: 'Rejected' }).eq('id', userId);
-        } catch (e) { console.error("Supabase reject failed", e); }
-    }
-
     await logActivity(null, 'USER_REJECT', `Rejected access for ${user.name}`, 'warning');
   }
 };
@@ -558,21 +318,6 @@ export const addCollege = async (details: Omit<College, 'id' | 'status' | 'creat
   _colleges = [..._colleges, newCollege];
   saveToLocal('colleges', _colleges);
 
-  if (supabase) {
-      try {
-          await supabase.from('colleges').insert({
-              id: newCollege.id,
-              name: newCollege.name,
-              email_id: newCollege.emailId,
-              website: newCollege.website,
-              address: newCollege.address,
-              contact_phone: newCollege.contactPhone,
-              status: newCollege.status,
-              created_at: newCollege.createdAt
-          });
-      } catch (e) { console.error("Supabase add college failed", e); }
-  }
-
   await logActivity(null, 'COLLEGE_ADD', `Added new institution: ${newCollege.name}`, 'success');
   return newCollege;
 };
@@ -584,12 +329,6 @@ export const updateCollegeStatus = async (id: string, status: 'Active' | 'Suspen
     _colleges[index] = { ...college, status };
     saveToLocal('colleges', _colleges);
     
-    if (supabase) {
-        try {
-            await supabase.from('colleges').update({ status }).eq('id', id);
-        } catch (e) { console.error("Supabase update college failed", e); }
-    }
-
     await logActivity(null, 'COLLEGE_STATUS', `Changed status of ${college.name} to ${status}`, 'warning');
   }
 };
@@ -599,12 +338,6 @@ export const removeCollege = async (id: string): Promise<void> => {
   _colleges = _colleges.filter(c => c.id !== id);
   saveToLocal('colleges', _colleges);
   
-  if (supabase) {
-      try {
-          await supabase.from('colleges').delete().eq('id', id);
-      } catch (e) { console.error("Supabase remove college failed", e); }
-  }
-
   await logActivity(null, 'COLLEGE_REMOVE', `Removed institution: ${college?.name}`, 'error');
 };
 

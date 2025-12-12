@@ -1,6 +1,5 @@
 import { User, UserRole } from '../types';
 import { getAllUsers, getColleges } from './dataService';
-import { supabase } from '../lib/supabase';
 
 export const login = async (email: string, role?: UserRole, collegeId?: string): Promise<{ user: User | null; error: string | null }> => {
   // Simulate network delay for "Production" feel
@@ -54,28 +53,8 @@ export const login = async (email: string, role?: UserRole, collegeId?: string):
   return { user: null, error: 'Invalid credentials or user not found.' };
 };
 
-export const signInWithGoogle = async () => {
-  if (!supabase) throw new Error("Supabase is not initialized");
-  
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: window.location.origin,
-      queryParams: {
-        access_type: 'offline',
-        prompt: 'consent',
-      },
-    }
-  });
-  
-  if (error) throw error;
-};
-
 export const logout = async () => {
     localStorage.removeItem('cc_session');
-    if (supabase) {
-      await supabase.auth.signOut();
-    }
     // Simulate delay
     await new Promise(resolve => setTimeout(resolve, 300));
 };
