@@ -32,6 +32,8 @@ export interface College {
   contactPhone: string;
   status: 'Active' | 'Suspended';
   createdAt: string; // ISO String timestamp of when the college was added
+  logoUrl?: string;
+  logoFileName?: string;
 }
 
 export interface User {

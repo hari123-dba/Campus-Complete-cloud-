@@ -17,13 +17,24 @@ function App() {
 
   useEffect(() => {
     const init = async () => {
-      // Initialize Database (Fetch Data)
-      await initializeDatabase();
+      // Safety timeout: If database init hangs for more than 4 seconds, force load app
+      const safetyTimer = setTimeout(() => {
+        setIsLoading(false);
+      }, 4000);
+
+      try {
+        // Initialize Database (Fetch Data)
+        await initializeDatabase();
+      } catch (error) {
+        console.error("Initialization warning:", error);
+      }
 
       const sessionUser = getSession();
       if (sessionUser) {
         setUser(sessionUser);
       }
+      
+      clearTimeout(safetyTimer);
       setIsLoading(false);
     };
 
@@ -35,7 +46,6 @@ function App() {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
            <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600"></div>
-           <p className="text-slate-500 font-medium animate-pulse">Connecting to Campus Cloud...</p>
         </div>
       </div>
     );

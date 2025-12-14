@@ -21,14 +21,18 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   useEffect(() => {
     // Only fetch if the user has a role that can approve others
     if (user.role !== UserRole.STUDENT) {
-      const updateCount = () => {
-        const count = getPendingUsers(user).length;
-        setPendingCount(count);
+      const updateCount = async () => {
+        try {
+          const pending = await getPendingUsers(user);
+          setPendingCount(pending.length);
+        } catch (e) {
+          console.error("Failed to update notification count", e);
+        }
       };
       
       updateCount();
-      // Poll every 5 seconds for demo purposes
-      const interval = setInterval(updateCount, 5000);
+      // Poll every 60 seconds (optimized from 5s)
+      const interval = setInterval(updateCount, 60000);
       return () => clearInterval(interval);
     }
   }, [user]);

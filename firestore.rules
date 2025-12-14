@@ -1,1 +1,128 @@
-// Firestore rules removed.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- HELPER FUNCTIONS ---
+
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user matches the document ID
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Fetch the current user's profile data
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Role Checks
+    function hasRole(role) {
+      return isAuthenticated() && getUserData().role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('Administrator');
+    }
+
+    function isPrincipal() {
+      return hasRole('Principal');
+    }
+
+    function isHOD() {
+      return hasRole('HOD');
+    }
+
+    function isLecturer() {
+      return hasRole('Lecturer');
+    }
+
+    function isStudent() {
+      return hasRole('Student');
+    }
+
+    // --- SEED DATA EXCEPTION ---
+    // Allows the client-side seeder to run. 
+    // CRITICAL FIX: Removed 'request.auth == null' check. 
+    // This allows the app to seed data even if a user session (e.g. anonymous) persists.
+    function isSeedOp(id) {
+       return (
+         id in ['col_1', 'col_2', 'Iy7Ruw1dq8P1DXhidp3l', 'fN22LAa9Lemb6AbOum9R'] || 
+         id in ['u_admin', 'u_princ', 'u_hod', 'u_lec', 'u_stu'] || 
+         id in ['c1', 'c2'] || 
+         id in ['p1'] || 
+         id in ['a1']
+       );
+    }
+
+    // --- COLLECTION RULES ---
+
+    // 1. COLLEGES
+    match /colleges/{collegeId} {
+      allow read: if true;
+      allow create, update: if isSeedOp(collegeId); // Allow create/update for seed data
+      allow write: if isAdmin();
+    }
+
+    // 2. USERS
+    match /users/{userId} {
+      allow read: if isAuthenticated() || isSeedOp(userId); 
+      
+      // Allow real users to signup OR seeder to create demo users
+      allow create: if (isAuthenticated() && request.auth.uid == userId) || isSeedOp(userId);
+      
+      allow update: if isSeedOp(userId) || (isAuthenticated() && (
+        isAdmin() || 
+        (isOwner(userId) && 
+         // Prevent Role Escalation
+         request.resource.data.role == resource.data.role &&
+         // Prevent Status Change (Self-Approval)
+         request.resource.data.status == resource.data.status &&
+         // Prevent College Transfer
+         request.resource.data.collegeId == resource.data.collegeId
+        )
+      ));
+      
+      allow delete: if isAdmin() || isOwner(userId);
+    }
+
+    // 3. TEAMS
+    match /teams/{teamId} {
+      allow read: if isAuthenticated();
+      allow create: if isStudent();
+      allow update: if isAuthenticated();
+    }
+
+    // 4. PROJECTS
+    match /projects/{projectId} {
+      allow read: if isAuthenticated();
+      allow create: if isStudent() || isSeedOp(projectId);
+      allow update: if isAuthenticated() && (
+        isStudent() || isLecturer() || isHOD() || isPrincipal()
+      );
+    }
+
+    // 5. COMPETITIONS
+    match /competitions/{compId} {
+      allow read: if isAuthenticated();
+      allow create: if isSeedOp(compId);
+      allow write: if isAdmin() || isPrincipal();
+    }
+
+    // 6. ANNOUNCEMENTS
+    match /announcements/{announceId} {
+      allow read: if isAuthenticated();
+      allow create: if isSeedOp(announceId);
+      allow write: if isAdmin() || isPrincipal() || isHOD();
+    }
+
+    // 7. ACTIVITY LOGS
+    match /logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+    }
+  }
+}

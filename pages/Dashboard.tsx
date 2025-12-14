@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { User, UserRole, ProjectPhase, College, ActivityLog, CompetitionStatus, Project } from '../types';
+import { User, UserRole, ProjectPhase, College, ActivityLog, CompetitionStatus, Project, Competition, Announcement } from '../types';
 import { getDataForUser, getPendingUsers, approveUser, rejectUser, addCollege, getColleges, updateCollegeStatus, removeCollege, getAllUsers, getSystemLogs } from '../services/dataService';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend, LineChart, Line, CartesianGrid
@@ -7,7 +7,7 @@ import {
 import { 
   Clock, TrendingUp, AlertCircle, CheckCircle2, UserCheck, XCircle, 
   School, X, Loader2, Shield, Users, Trophy, Award,
-  FileText, Activity, BarChart2, Power, Trash2, Building2, FolderKanban, ClipboardCheck, Globe, MapPin, Phone, UserCog, GraduationCap, Zap, ChevronRight, Plus, Rocket, BookOpen, Target, Calendar
+  FileText, Activity, BarChart2, Power, Trash2, Building2, FolderKanban, ClipboardCheck, Globe, MapPin, Phone, UserCog, GraduationCap, Zap, ChevronRight, Plus, Rocket, BookOpen, Target, Calendar, Upload, ImageIcon
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -17,9 +17,13 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const navigate = useNavigate();
-  // Fetch specific data for user
-  const { competitions, projects, announcements } = getDataForUser(user.id, user.role);
   
+  // Data State
+  const [competitions, setCompetitions] = useState<Competition[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+
   // State for Admin/Management
   const [pendingUsers, setPendingUsers] = useState<User[]>([]);
   const [processedIds, setProcessedIds] = useState<string[]>([]);
@@ -28,6 +32,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const [newCollegeForm, setNewCollegeForm] = useState({ 
     name: '', emailId: '', website: '', address: '', contactPhone: ''
   });
+  const [collegeLogo, setCollegeLogo] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
   
   // Global Data State (for stats calculation)
   const [collegeList, setCollegeList] = useState<College[]>([]);
@@ -39,42 +45,113 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
   // --- 1. DATA FETCHING & POLLING ---
   useEffect(() => {
-    // Initial fetch of system-wide users for non-students (to calculate stats)
-    if (user.role !== UserRole.STUDENT) {
-      setAllSystemUsers(getAllUsers());
-      if (user.role === UserRole.ADMIN) {
-        setCollegeList(getColleges());
-        setSystemLogs(getSystemLogs());
-      }
-    }
-  }, [user.role, pendingUsers, processedIds]); 
+    const fetchData = async () => {
+      setLoadingData(true);
+      const data = await getDataForUser(user.id, user.role);
+      setCompetitions(data.competitions);
+      setProjects(data.projects);
+      setAnnouncements(data.announcements);
 
-  // Poll for pending users
+      if (user.role !== UserRole.STUDENT) {
+        const users = await getAllUsers();
+        setAllSystemUsers(users);
+        if (user.role === UserRole.ADMIN) {
+          setCollegeList(await getColleges());
+          setSystemLogs(await getSystemLogs());
+        }
+      }
+      setLoadingData(false);
+    };
+
+    fetchData();
+  }, [user]);
+
+  // Poll for pending users (Optimized Interval)
   useEffect(() => {
     if (user.role !== UserRole.STUDENT) {
-      const updatePending = () => {
-        const pending = getPendingUsers(user);
-        setPendingUsers(pending.filter(p => !processedIds.includes(p.id)));
-        if (user.role === UserRole.ADMIN) setSystemLogs(getSystemLogs());
+      const updatePending = async () => {
+        try {
+          const pending = await getPendingUsers(user);
+          setPendingUsers(pending.filter(p => !processedIds.includes(p.id)));
+          if (user.role === UserRole.ADMIN) setSystemLogs(await getSystemLogs());
+        } catch (e) {
+          console.error("Polling error", e);
+        }
       };
-      updatePending();
-      const interval = setInterval(updatePending, 5000);
+      
+      updatePending(); // Initial call
+      const interval = setInterval(updatePending, 30000); // Increased interval to 30s
       return () => clearInterval(interval);
     }
   }, [user, processedIds]);
 
-  // --- 2. ACTIONS ---
+  // Handle Logo Preview
+  useEffect(() => {
+    if (collegeLogo) {
+      const url = URL.createObjectURL(collegeLogo);
+      setLogoPreview(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setLogoPreview(null);
+    }
+  }, [collegeLogo]);
+
+  // --- 2. MEMOIZED STATS ---
+  // Student Stats
+  const activeProjects = useMemo(() => projects.filter(p => p.phase !== ProjectPhase.IMPLEMENTATION), [projects]);
+  const completedProjects = useMemo(() => projects.filter(p => p.phase === ProjectPhase.IMPLEMENTATION), [projects]);
+  const ongoingCompetitions = useMemo(() => competitions.filter(c => c.status === CompetitionStatus.ONGOING), [competitions]);
+
+  // Lecturer Stats
+  const myStudents = useMemo(() => allSystemUsers.filter(u => u.role === UserRole.STUDENT && u.department === user.department && u.collegeId === user.collegeId), [allSystemUsers, user]);
+  const myDeptProjects = useMemo(() => projects.filter(p => myStudents.some(s => s.id === p.studentId)), [projects, myStudents]);
+  const pendingEvaluations = useMemo(() => myDeptProjects.filter(p => p.phase === ProjectPhase.TESTING || p.phase === ProjectPhase.IMPLEMENTATION), [myDeptProjects]);
+  const chartDataLecturer = useMemo(() => [
+     { name: 'Design', count: myDeptProjects.filter(p => p.phase === ProjectPhase.DESIGN).length },
+     { name: 'Dev', count: myDeptProjects.filter(p => p.phase === ProjectPhase.DEVELOPMENT).length },
+     { name: 'Test', count: myDeptProjects.filter(p => p.phase === ProjectPhase.TESTING).length },
+     { name: 'Impl', count: myDeptProjects.filter(p => p.phase === ProjectPhase.IMPLEMENTATION).length },
+  ], [myDeptProjects]);
+
+  // HOD Stats
+  const deptUsers = useMemo(() => allSystemUsers.filter(u => u.collegeId === user.collegeId && u.department === user.department), [allSystemUsers, user]);
+  const deptStudents = useMemo(() => deptUsers.filter(u => u.role === UserRole.STUDENT), [deptUsers]);
+  const lecturers = useMemo(() => deptUsers.filter(u => u.role === UserRole.LECTURER), [deptUsers]);
+  const deptProjects = useMemo(() => {
+     const studentIds = deptStudents.map(s => s.id);
+     return projects.filter(p => studentIds.includes(p.studentId));
+  }, [projects, deptStudents]);
+
+  // Principal Stats
+  const collegeUsers = useMemo(() => allSystemUsers.filter(u => u.collegeId === user.collegeId), [allSystemUsers, user]);
+  const departments = useMemo(() => Array.from(new Set(collegeUsers.map(u => u.department).filter(Boolean))), [collegeUsers]);
+  const chartDataDepartments = useMemo(() => departments.map(dept => ({
+     name: dept,
+     students: collegeUsers.filter(u => u.department === dept && u.role === UserRole.STUDENT).length
+  })), [departments, collegeUsers]);
+
+  // Admin Stats
+  const activeCompetitionsCount = useMemo(() => competitions.filter(c => c.status === CompetitionStatus.ONGOING).length, [competitions]);
+
+
+  // --- 3. ACTIONS ---
   const handleApprove = async (id: string) => {
-    await approveUser(id);
+    // Optimistic Update
+    setPendingUsers(prev => prev.filter(u => u.id !== id));
     setProcessedIds(prev => [...prev, id]);
-    if (user.role !== UserRole.STUDENT) setAllSystemUsers(getAllUsers());
+    // Update local state for all users too so stats reflect immediately
+    setAllSystemUsers(prev => prev.map(u => u.id === id ? {...u, status: 'Active'} : u));
+
+    // Background Async
+    await approveUser(id);
   };
 
   const handleReject = async (id: string) => {
     if(window.confirm("Are you sure you want to reject this user?")) {
-      await rejectUser(id);
+      setPendingUsers(prev => prev.filter(u => u.id !== id));
       setProcessedIds(prev => [...prev, id]);
-      if (user.role !== UserRole.STUDENT) setAllSystemUsers(getAllUsers());
+      setAllSystemUsers(prev => prev.map(u => u.id === id ? {...u, status: 'Rejected'} : u));
+      await rejectUser(id);
     }
   };
 
@@ -83,11 +160,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     setIsProcessing(true);
     setModalMsg(null);
     try {
-      await addCollege({ ...newCollegeForm });
+      await addCollege({ 
+        name: newCollegeForm.name,
+        emailId: newCollegeForm.emailId,
+        website: newCollegeForm.website,
+        address: newCollegeForm.address,
+        contactPhone: newCollegeForm.contactPhone
+      }, undefined, collegeLogo || undefined);
+
       setModalMsg({ type: 'success', text: 'College added successfully.' });
       setNewCollegeForm({ name: '', emailId: '', website: '', address: '', contactPhone: '' });
-      setCollegeList([...getColleges()]);
-      setSystemLogs(getSystemLogs());
+      setCollegeLogo(null);
+      setCollegeList(await getColleges());
+      setSystemLogs(await getSystemLogs());
       setTimeout(() => { setModalMsg(null); setShowAddCollegeModal(false); }, 1500);
     } catch (err: any) {
       setModalMsg({ type: 'error', text: err.message });
@@ -98,18 +183,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
   const handleToggleCollegeStatus = async (college: College) => {
     const newStatus = college.status === 'Active' ? 'Suspended' : 'Active';
+    // Optimistic
+    setCollegeList(prev => prev.map(c => c.id === college.id ? {...c, status: newStatus} : c));
     await updateCollegeStatus(college.id, newStatus);
-    setCollegeList([...getColleges()]);
   };
 
   const handleRemoveCollege = async (id: string) => {
-    if (window.confirm('Are you sure you want to permanently delete this college?')) {
-      await removeCollege(id);
-      setCollegeList([...getColleges()]);
+    const linkedUsers = allSystemUsers.filter(u => u.collegeId === id);
+    if (linkedUsers.length > 0) {
+      alert(`Cannot delete college. ${linkedUsers.length} users are currently linked to this institution. Please remove or reassign them first.`);
+      return;
+    }
+
+    if (window.confirm('Are you sure you want to permanently delete this college? This action cannot be undone.')) {
+      try {
+        setCollegeList(prev => prev.filter(c => c.id !== id));
+        await removeCollege(id);
+      } catch (e) {
+        console.error("Failed to delete college", e);
+        alert("An error occurred while deleting the college.");
+      }
     }
   };
 
-  // --- 3. HELPER COMPONENTS ---
+  if (loadingData) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <Loader2 className="animate-spin text-blue-600" size={32} />
+      </div>
+    );
+  }
+
+  // --- 4. RENDER HELPERS (Pure Components) ---
   
   const StatCard = ({ title, value, icon: Icon, color, suffix, subtext }: any) => (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all group h-full">
@@ -181,15 +286,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     </div>
   );
 
-  // --- 4. ROLE SPECIFIC DASHBOARDS ---
+  // --- 5. DASHBOARD VIEWS (Render Functions) ---
 
-  // === STUDENT DASHBOARD ===
-  const StudentDashboard = () => {
-    const activeProjects = projects.filter(p => p.phase !== ProjectPhase.IMPLEMENTATION);
-    const completedProjects = projects.filter(p => p.phase === ProjectPhase.IMPLEMENTATION);
-    const ongoingCompetitions = competitions.filter(c => c.status === CompetitionStatus.ONGOING);
-
-    return (
+  const renderStudentDashboard = () => (
       <div className="space-y-8 animate-fade-in">
         {/* Hero Section */}
         <div className="relative bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl p-8 text-white overflow-hidden shadow-xl shadow-blue-200">
@@ -264,7 +363,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                          </div>
                          <div className="text-right">
                             <span className="inline-block px-3 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full mb-1">{p.phase}</span>
-                            <p className="text-[10px] text-slate-400">Updated {p.lastUpdated}</p>
+                            <p className="text-[10px] text-slate-400">Updated {new Date(p.lastUpdated).toLocaleDateString()}</p>
                          </div>
                       </div>
                     ))}
@@ -304,17 +403,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
            </div>
         </div>
       </div>
-    );
-  };
+  );
 
-  // === LECTURER DASHBOARD ===
-  const LecturerDashboard = () => {
-    // Filter students belonging to this lecturer's department and college
-    const myStudents = allSystemUsers.filter(u => u.role === UserRole.STUDENT && u.department === user.department && u.collegeId === user.collegeId);
-    const myDeptProjects = projects.filter(p => myStudents.some(s => s.id === p.studentId));
-    const pendingEvaluations = myDeptProjects.filter(p => p.phase === ProjectPhase.TESTING || p.phase === ProjectPhase.IMPLEMENTATION);
-
-    return (
+  const renderLecturerDashboard = () => (
       <div className="space-y-8 animate-fade-in">
          <div className="flex items-center justify-between">
            <div>
@@ -364,12 +455,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                <SectionHeader title="Phase Distribution" />
                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 h-64">
                   <ResponsiveContainer width="100%" height="100%">
-                     <BarChart data={[
-                        { name: 'Design', count: myDeptProjects.filter(p => p.phase === ProjectPhase.DESIGN).length },
-                        { name: 'Dev', count: myDeptProjects.filter(p => p.phase === ProjectPhase.DEVELOPMENT).length },
-                        { name: 'Test', count: myDeptProjects.filter(p => p.phase === ProjectPhase.TESTING).length },
-                        { name: 'Impl', count: myDeptProjects.filter(p => p.phase === ProjectPhase.IMPLEMENTATION).length },
-                     ]}>
+                     <BarChart data={chartDataLecturer}>
                         <XAxis dataKey="name" axisLine={false} tickLine={false} />
                         <Tooltip cursor={{fill: 'transparent'}} />
                         <Bar dataKey="count" fill="#4f46e5" radius={[4, 4, 4, 4]} barSize={40} />
@@ -379,20 +465,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
             </div>
          </div>
       </div>
-    );
-  };
+  );
 
-  // === HOD DASHBOARD ===
-  const HODDashboard = () => {
-    const deptUsers = allSystemUsers.filter(u => u.collegeId === user.collegeId && u.department === user.department);
-    const students = deptUsers.filter(u => u.role === UserRole.STUDENT);
-    const lecturers = deptUsers.filter(u => u.role === UserRole.LECTURER);
-    
-    // Estimate dept projects by finding projects owned by dept students
-    const studentIds = students.map(s => s.id);
-    const deptProjects = projects.filter(p => studentIds.includes(p.studentId));
-
-    return (
+  const renderHODDashboard = () => (
        <div className="space-y-8 animate-fade-in">
           <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
              <div>
@@ -411,7 +486,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
              <StatCard title="Faculty Members" value={lecturers.length} icon={UserCog} color="bg-purple-600" />
-             <StatCard title="Total Students" value={students.length} icon={GraduationCap} color="bg-blue-600" />
+             <StatCard title="Total Students" value={deptStudents.length} icon={GraduationCap} color="bg-blue-600" />
              <StatCard title="Active Projects" value={deptProjects.length} icon={FolderKanban} color="bg-indigo-600" />
              <StatCard title="Avg Project Score" value="82" icon={Target} color="bg-green-600" suffix="/ 100" />
           </div>
@@ -455,17 +530,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
              </div>
           </div>
        </div>
-    );
-  };
+  );
 
-  // === PRINCIPAL DASHBOARD ===
-  const PrincipalDashboard = () => {
-    const collegeUsers = allSystemUsers.filter(u => u.collegeId === user.collegeId);
-    const activeCompetitions = competitions.filter(c => c.status === CompetitionStatus.ONGOING);
-    // Find departments dynamically
-    const departments = Array.from(new Set(collegeUsers.map(u => u.department).filter(Boolean)));
-
-    return (
+  const renderPrincipalDashboard = () => (
        <div className="space-y-8 animate-fade-in">
           <div className="flex justify-between items-end mb-2">
              <div>
@@ -483,7 +550,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
              <StatCard title="Active Departments" value={departments.length} icon={Building2} color="bg-blue-600" />
              <StatCard title="Total Students" value={collegeUsers.filter(u => u.role === UserRole.STUDENT).length} icon={Users} color="bg-indigo-600" />
-             <StatCard title="Ongoing Competitions" value={activeCompetitions.length} icon={Trophy} color="bg-orange-500" />
+             <StatCard title="Ongoing Competitions" value={ongoingCompetitions.length} icon={Trophy} color="bg-orange-500" />
              <StatCard title="Research Output" value="High" icon={BookOpen} color="bg-green-600" suffix="Top 10%" />
           </div>
 
@@ -492,10 +559,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                 <SectionHeader title="Department Enrollment" />
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 h-80">
                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={departments.map(dept => ({
-                         name: dept,
-                         students: collegeUsers.filter(u => u.department === dept && u.role === UserRole.STUDENT).length
-                      }))} layout="vertical">
+                      <BarChart data={chartDataDepartments} layout="vertical">
                          <XAxis type="number" hide />
                          <YAxis dataKey="name" type="category" width={120} tick={{fontSize: 11}} />
                          <Tooltip cursor={{fill: '#f8fafc'}} />
@@ -530,15 +594,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
              </div>
           </div>
        </div>
-    );
-  };
+  );
 
-  // === ADMIN DASHBOARD ===
-  const AdminDashboard = () => {
-    const totalUsers = allSystemUsers.length;
-    const activeCompetitions = competitions.filter(c => c.status === CompetitionStatus.ONGOING).length;
-    
-    return (
+  const renderAdminDashboard = () => (
       <div className="space-y-6 animate-fade-in relative pb-20">
         {/* Header */}
         <div className="bg-gradient-to-r from-red-600 to-red-700 rounded-2xl p-8 text-white shadow-lg shadow-red-200">
@@ -557,8 +615,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
         {/* Main Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-           <StatCard title="Total Users" value={totalUsers} icon={Users} color="bg-blue-600" />
-           <StatCard title="Active Competitions" value={activeCompetitions} icon={Award} color="bg-purple-600" />
+           <StatCard title="Total Users" value={allSystemUsers.length} icon={Users} color="bg-blue-600" />
+           <StatCard title="Active Competitions" value={activeCompetitionsCount} icon={Award} color="bg-purple-600" />
            <StatCard title="Total Projects" value={projects.length} icon={FileText} color="bg-green-600" />
            <StatCard title="System Health" value="98%" icon={Activity} color="bg-orange-500" />
         </div>
@@ -586,56 +644,76 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
            </div>
            <div className="grid grid-cols-1 gap-3">
               {collegeList.map(college => (
-                <div key={college.id} className="flex justify-between items-center p-4 border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors group">
+                <div key={college.id} className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors group gap-4">
                     <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center shadow-sm">
-                            <Building2 size={20} />
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-sm shrink-0 overflow-hidden ${college.status === 'Active' ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
+                            {college.logoUrl ? (
+                              <img src={college.logoUrl} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <Building2 size={20} />
+                            )}
                         </div>
                         <div>
-                            <p className="font-bold text-slate-800">{college.name}</p>
-                            <div className="flex gap-3 text-xs text-slate-500 mt-1">
-                              <span className="flex items-center gap-1"><Globe size={12}/> {college.emailId}</span>
-                              <span className="flex items-center gap-1"><MapPin size={12}/> {college.address ? college.address.split(',')[1] : 'Main Campus'}</span>
+                            <div className="flex items-center gap-2">
+                              <p className="font-bold text-slate-800">{college.name}</p>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${college.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                {college.status}
+                              </span>
+                            </div>
+                            
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 mt-1">
+                              <span className="flex items-center gap-1" title="Domain ID">
+                                <Shield size={12} className="text-slate-400"/> {college.emailId}
+                              </span>
+                              {college.website && (
+                                <a href={college.website} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-blue-600 hover:underline">
+                                  <Globe size={12} className="text-slate-400"/> Website
+                                </a>
+                              )}
+                              <span className="flex items-center gap-1">
+                                <MapPin size={12} className="text-slate-400"/> {college.address ? (college.address.split(',')[1] || college.address) : 'Main Campus'}
+                              </span>
                             </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider ${college.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                            {college.status}
-                        </span>
-                        <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => handleToggleCollegeStatus(college)} className="p-2 hover:bg-white rounded-lg text-slate-400 hover:text-slate-700 border border-transparent hover:border-slate-200 transition-all">
-                            <Power size={16} />
-                          </button>
-                          <button onClick={() => handleRemoveCollege(college.id)} className="p-2 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-500 border border-transparent hover:border-red-100 transition-all">
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
+                    <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+                        <button 
+                          onClick={() => handleToggleCollegeStatus(college)} 
+                          title={college.status === 'Active' ? "Suspend College" : "Activate College"}
+                          className={`p-2 rounded-lg border transition-all ${college.status === 'Active' ? 'hover:bg-amber-50 text-slate-400 hover:text-amber-600 border-transparent hover:border-amber-200' : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100'}`}
+                        >
+                          <Power size={16} />
+                        </button>
+                        <button 
+                          onClick={() => handleRemoveCollege(college.id)} 
+                          title="Delete College"
+                          className="p-2 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-600 border border-transparent hover:border-red-100 transition-all"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                     </div>
                 </div>
               ))}
            </div>
         </div>
       </div>
-    );
-  };
+  );
 
-  // --- 5. RENDER LOGIC ---
-
+  // Helper to switch based on role
   const renderDashboard = () => {
     switch (user.role) {
       case UserRole.STUDENT:
-        return <StudentDashboard />;
+        return renderStudentDashboard();
       case UserRole.LECTURER:
-        return <LecturerDashboard />;
+        return renderLecturerDashboard();
       case UserRole.HOD:
-        return <HODDashboard />;
+        return renderHODDashboard();
       case UserRole.PRINCIPAL:
-        return <PrincipalDashboard />;
+        return renderPrincipalDashboard();
       case UserRole.ADMIN:
-        return <AdminDashboard />;
+        return renderAdminDashboard();
       default:
-        return <div>Unknown Role</div>;
+        return <div className="p-8 text-center text-slate-500">Access Restricted</div>;
     }
   };
 
@@ -663,31 +741,76 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Institution Name</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Institution Name <span className="text-red-500">*</span></label>
                     <input type="text" required className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
                         placeholder="e.g. Springfield Tech"
                         value={newCollegeForm.name} onChange={(e) => setNewCollegeForm({...newCollegeForm, name: e.target.value})} />
                   </div>
+                  
+                  {/* File Upload for Logo with Preview */}
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">College Logo (Optional)</label>
+                    <div className="flex items-start gap-4">
+                       {/* Preview Area */}
+                       {logoPreview ? (
+                         <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-slate-200 bg-white group shrink-0">
+                            <img src={logoPreview} alt="Preview" className="w-full h-full object-contain" />
+                            <button 
+                               type="button"
+                               onClick={() => { setCollegeLogo(null); setLogoPreview(null); }}
+                               className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white"
+                            >
+                               <X size={20} />
+                            </button>
+                         </div>
+                       ) : (
+                         <div className="w-24 h-24 rounded-xl bg-slate-50 flex items-center justify-center border border-slate-200 text-slate-300 shrink-0">
+                            <ImageIcon size={24} />
+                         </div>
+                       )}
+
+                       {/* Input Area */}
+                       <div className="flex-1">
+                          <div className="relative border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors p-4 flex flex-col items-center justify-center cursor-pointer h-24">
+                             <input 
+                               type="file" 
+                               accept="image/*" 
+                               onChange={(e) => e.target.files && setCollegeLogo(e.target.files[0])}
+                               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                             />
+                             <Upload size={20} className="text-slate-400 mb-1" />
+                             <p className="text-xs text-slate-500">Click to upload logo</p>
+                          </div>
+                          {collegeLogo && (
+                             <p className="text-xs text-green-600 mt-2 flex items-center gap-1 font-medium">
+                                <CheckCircle2 size={12} /> {collegeLogo.name}
+                             </p>
+                          )}
+                       </div>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Domain (@)</label>
-                    <input type="text" required className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                    <input type="text" className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
                         placeholder="univ.edu" value={newCollegeForm.emailId} onChange={(e) => setNewCollegeForm({...newCollegeForm, emailId: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
-                    <input type="tel" required className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                    <input type="tel" className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
                         placeholder="555-0100" value={newCollegeForm.contactPhone} onChange={(e) => setNewCollegeForm({...newCollegeForm, contactPhone: e.target.value})} />
                   </div>
-                  <div className="md:col-span-2">
+                  <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Website</label>
-                    <input type="url" required className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                    <input type="url" className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
                         placeholder="https://" value={newCollegeForm.website} onChange={(e) => setNewCollegeForm({...newCollegeForm, website: e.target.value})} />
                   </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
-                    <input type="text" required className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                        placeholder="Street, City" value={newCollegeForm.address} onChange={(e) => setNewCollegeForm({...newCollegeForm, address: e.target.value})} />
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">City / Location</label>
+                    <input type="text" className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="City, State" value={newCollegeForm.address} onChange={(e) => setNewCollegeForm({...newCollegeForm, address: e.target.value})} />
                   </div>
+                  
                 </div>
 
                 <div className="pt-2">

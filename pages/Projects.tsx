@@ -1,11 +1,30 @@
-import React from 'react';
-import { User, ProjectPhase } from '../types';
+import React, { useState, useEffect } from 'react';
+import { User, ProjectPhase, Project } from '../types';
 import { getDataForUser } from '../services/dataService';
 import { PHASE_STEPS } from '../constants';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, Loader2 } from 'lucide-react';
 
 export const Projects: React.FC<{ user: User }> = ({ user }) => {
-  const { projects } = getDataForUser(user.id, user.role);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProjects = async () => {
+      setLoading(true);
+      const data = await getDataForUser(user.id, user.role);
+      setProjects(data.projects);
+      setLoading(false);
+    };
+    fetchProjects();
+  }, [user]);
+
+  if (loading) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <Loader2 className="animate-spin text-blue-600" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in h-full flex flex-col">

@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { getDataForUser, getUserTeams, createProject } from '../services/dataService';
-import { User, CompetitionStatus, UserRole, Team } from '../types';
+import { User, CompetitionStatus, UserRole, Team, Competition } from '../types';
 import { STATUS_COLORS } from '../constants';
 import { Calendar, Users, ArrowRight, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export const Competitions: React.FC<{ user: User }> = ({ user }) => {
   const navigate = useNavigate();
-  const { competitions } = getDataForUser(user.id, user.role);
-  
+  const [competitions, setCompetitions] = useState<Competition[]>([]);
+  const [loading, setLoading] = useState(true);
+
   // Registration Modal State
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string | null>(null);
@@ -24,9 +25,19 @@ export const Competitions: React.FC<{ user: User }> = ({ user }) => {
     teamId: ''
   });
 
-  const handleOpenRegister = (compId: string) => {
-    // 1. Fetch user teams
-    const teams = getUserTeams(user.id);
+  useEffect(() => {
+    const fetchCompetitions = async () => {
+      setLoading(true);
+      const data = await getDataForUser(user.id, user.role);
+      setCompetitions(data.competitions);
+      setLoading(false);
+    };
+    fetchCompetitions();
+  }, [user]);
+
+  const handleOpenRegister = async (compId: string) => {
+    // 1. Fetch user teams async
+    const teams = await getUserTeams(user.id);
     
     // 2. Check if user belongs to any team (required for project creation)
     if (teams.length === 0) {
@@ -79,6 +90,14 @@ export const Competitions: React.FC<{ user: User }> = ({ user }) => {
       setIsSubmitting(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <Loader2 className="animate-spin text-blue-600" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in space-y-6 relative">

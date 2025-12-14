@@ -45,10 +45,12 @@ const ensureFirestoreDoc = async (authUser: any, additionalData: any = {}) => {
 };
 
 export const login = async (email: string, role?: UserRole, collegeId?: string): Promise<{ user: User | null; error: string | null }> => {
-  // MOCK LOGIN STRATEGY (For Demo Mode)
+  // MOCK LOGIN STRATEGY (For Demo Mode) using Firestore
   try {
     await new Promise(resolve => setTimeout(resolve, 800));
-    const users = getAllUsers();
+    
+    // Fetch users from Firestore instead of sync helper
+    const users = await getAllUsers();
     const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
 
     if (user) {
@@ -58,7 +60,7 @@ export const login = async (email: string, role?: UserRole, collegeId?: string):
       localStorage.setItem('cc_session', JSON.stringify(user));
       return { user, error: null };
     }
-    return { user: null, error: "User not found in demo database." };
+    return { user: null, error: "User not found in database." };
   } catch (e) {
       console.error(e);
       return { user: null, error: "An unexpected error occurred during demo login." };

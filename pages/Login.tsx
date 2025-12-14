@@ -3,8 +3,8 @@ import { UserRole, College } from '../types';
 import { RoleCard } from '../components/RoleCard';
 // Use the new firebase auth functions
 import { firebaseLogin, firebaseSignup, sendPasswordReset, signInWithGoogle, login as mockLogin } from '../services/authService';
-import { getColleges, resetDatabase } from '../services/dataService';
-import { Trophy, AlertCircle, Loader2, School, LogIn, UserPlus, Info, RefreshCw, Upload, MailCheck, KeyRound, ArrowLeft } from 'lucide-react';
+import { getColleges, resetDatabase, initializeDatabase } from '../services/dataService';
+import { Trophy, AlertCircle, Loader2, School, LogIn, UserPlus, Info, RefreshCw, Upload, MailCheck, KeyRound, ArrowLeft, Database } from 'lucide-react';
 import { PWAInstallPrompt } from '../components/PWAInstallPrompt';
 import { DEPARTMENTS, ACADEMIC_YEARS } from '../constants';
 
@@ -55,17 +55,37 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
   // Initial Data Load
   useEffect(() => {
-    const loadedColleges = getColleges();
-    setColleges(loadedColleges);
-    
-    // Auto-select first college if data exists but selection is empty/invalid
-    if (loadedColleges.length > 0) {
-      const isValid = loadedColleges.find(c => c.id === selectedCollege);
-      if (!isValid || !selectedCollege) {
-        setSelectedCollege(loadedColleges[0].id);
+    loadInitData();
+  }, []); 
+
+  const loadInitData = async () => {
+    try {
+      const loadedColleges = await getColleges();
+      setColleges(loadedColleges);
+      
+      // Auto-select first college if data exists but selection is empty/invalid
+      if (loadedColleges.length > 0) {
+        if (!selectedCollege) {
+          setSelectedCollege(loadedColleges[0].id);
+        }
       }
+    } catch (e) {
+      console.error("Failed to load colleges", e);
     }
-  }, [selectedCollege]); 
+  };
+
+  const handleRetryConnection = async () => {
+    setIsLoading(true);
+    try {
+      // Force initialization attempt
+      await initializeDatabase();
+      await loadInitData();
+    } catch (e) {
+      setError("Failed to initialize. Please refresh.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Reset messages on tab change
   useEffect(() => {
@@ -337,16 +357,18 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             </div>
 
             {/* Fallback for Broken Data State */}
-            {colleges.length === 0 && (
+            {colleges.length === 0 && !isLoading && (
             <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl text-center">
                 <AlertCircle className="w-8 h-8 text-yellow-500 mx-auto mb-2" />
                 <h3 className="font-bold text-yellow-800 mb-1">System Data Missing</h3>
-                <p className="text-sm text-yellow-700 mb-3">No colleges detected. This can happen after a deployment or cache clear.</p>
+                <p className="text-sm text-yellow-700 mb-3">No colleges detected. This can happen if the database is empty.</p>
                 <button 
-                onClick={resetDatabase}
+                onClick={handleRetryConnection}
+                disabled={isLoading}
                 className="px-4 py-2 bg-yellow-100 hover:bg-yellow-200 text-yellow-800 rounded-lg text-sm font-bold flex items-center justify-center gap-2 mx-auto transition-colors"
                 >
-                <RefreshCw size={14} /> Reset Demo Data
+                 {isLoading ? <Loader2 className="animate-spin" size={14} /> : <Database size={14} />} 
+                 Load Sample Data
                 </button>
             </div>
             )}
