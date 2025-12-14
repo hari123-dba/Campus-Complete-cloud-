@@ -194,7 +194,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         phoneNumber: formData.phoneNumber
       };
 
-      // Use Firebase Signup
+      // Use Firebase Signup with full data and profile photo
       const { user, error: signupError } = await firebaseSignup(
         formData.email, 
         formData.password, 
