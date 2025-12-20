@@ -7,7 +7,7 @@ import {
 import { 
   Clock, TrendingUp, AlertCircle, CheckCircle2, UserCheck, XCircle, 
   School, X, Loader2, Shield, Users, Trophy, Award,
-  FileText, Activity, BarChart2, Power, Trash2, Building2, FolderKanban, ClipboardCheck, Globe, MapPin, Phone, UserCog, GraduationCap, Zap, ChevronRight, Plus, Rocket, BookOpen, Target, Calendar, Upload, ImageIcon, Key
+  FileText, Activity, BarChart2, Power, Trash2, Building2, FolderKanban, ClipboardCheck, Globe, MapPin, Phone, UserCog, GraduationCap, Zap, ChevronRight, Plus, Rocket, BookOpen, Target, Calendar, Upload, ImageIcon, Key, Download, FileJson
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -181,6 +181,40 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     }
   };
 
+  const handleBulkImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const content = event.target?.result as string;
+        const colleges = JSON.parse(content);
+        if (!Array.isArray(colleges)) throw new Error("JSON must be an array of college objects.");
+
+        setIsProcessing(true);
+        let successCount = 0;
+        for (const col of colleges) {
+          try {
+            await addCollege(col, col.id);
+            successCount++;
+          } catch (err) {
+            console.error(`Failed to import ${col.name}`, err);
+          }
+        }
+        
+        alert(`Successfully imported ${successCount} out of ${colleges.length} colleges.`);
+        setCollegeList(await getColleges());
+      } catch (err: any) {
+        alert("Import failed: " + err.message);
+      } finally {
+        setIsProcessing(false);
+        e.target.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleToggleCollegeStatus = async (college: College) => {
     const newStatus = college.status === 'Active' ? 'Suspended' : 'Active';
     // Optimistic
@@ -214,7 +248,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     );
   }
 
-  // --- 4. RENDER HELPERS (Pure Components) ---
+  // --- 4. RENDER HELPERS ---
   
   const StatCard = ({ title, value, icon: Icon, color, suffix, subtext }: any) => (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all group h-full">
@@ -286,7 +320,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     </div>
   );
 
-  // --- 5. DASHBOARD VIEWS (Render Functions) ---
+  // --- 5. DASHBOARD VIEWS ---
 
   const renderStudentDashboard = () => (
       <div className="space-y-8 animate-fade-in">
@@ -629,6 +663,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                  <School size={24} className="text-slate-400 group-hover:text-blue-600" />
                  <span className="font-semibold text-sm">Add College</span>
               </button>
+              <div className="relative flex flex-col items-center justify-center gap-2 p-6 bg-slate-50 border border-slate-200 rounded-xl hover:bg-green-50 hover:border-green-200 hover:text-green-700 transition-all group cursor-pointer overflow-hidden">
+                 <input 
+                    type="file" 
+                    accept=".json"
+                    onChange={handleBulkImport}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                 />
+                 <FileJson size={24} className="text-slate-400 group-hover:text-green-600" />
+                 <span className="font-semibold text-sm">Bulk Import</span>
+              </div>
               <button onClick={() => setShowAnalyticsModal(true)} className="flex flex-col items-center justify-center gap-2 p-6 bg-slate-50 border border-slate-200 rounded-xl hover:bg-purple-50 hover:border-purple-200 hover:text-purple-700 transition-all group">
                  <BarChart2 size={24} className="text-slate-400 group-hover:text-purple-600" />
                  <span className="font-semibold text-sm">Analytics</span>

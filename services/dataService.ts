@@ -7,7 +7,7 @@ import {
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { deleteUser } from 'firebase/auth';
 
-// --- SEED DATA CONSTANTS (Strictly adhering to Golden Schema) ---
+// --- SEED DATA CONSTANTS ---
 const SEED_COLLEGES: College[] = [
   { 
     id: 'kWE1Ir8wlBnv31BdZyDQ', 
@@ -75,21 +75,34 @@ const SEED_USERS: User[] = [
   }
 ];
 
-// --- INITIALIZATION & SEEDING ---
-
+/**
+ * Initializes the database.
+ * If offline, it handles the failure gracefully so the app shell still loads.
+ */
 export const initializeDatabase = async () => {
   try {
     const criticalIds = ['kWE1Ir8wlBnv31BdZyDQ', 'H8IFKjuoSkrUtiDlJEFp'];
     
+    // Attempt to check for critical records
     for (const id of criticalIds) {
       const colRef = doc(db, 'colleges', id);
-      const snap = await getDoc(colRef);
-      if (!snap.exists()) {
-        const seedData = SEED_COLLEGES.find(c => c.id === id);
-        if (seedData) {
-          console.log(`Seeding Golden Record: ${id}`);
-          await setDoc(colRef, seedData);
+      try {
+        const snap = await getDoc(colRef);
+        if (!snap.exists()) {
+          const seedData = SEED_COLLEGES.find(c => c.id === id);
+          if (seedData) {
+            console.log(`Seeding Golden Record: ${id}`);
+            await setDoc(colRef, seedData);
+          }
         }
+      } catch (innerError: any) {
+        // If we are offline, getDoc will throw if the item isn't in cache.
+        // We catch this here so the loop can continue or exit cleanly.
+        if (innerError.code === 'unavailable' || innerError.message.includes('offline')) {
+          console.warn(`Database initialization: Client is offline. Skipping seeding for ID: ${id}`);
+          return; // Stop initialization attempt if network is totally unavailable
+        }
+        throw innerError;
       }
     }
 
@@ -108,8 +121,11 @@ export const initializeDatabase = async () => {
       }
       await Promise.all(batchPromises);
     }
-  } catch (error) {
-    console.error("Error initializing database:", error);
+  } catch (error: any) {
+    // Only log if it's not a standard offline warning
+    if (!error.message?.includes('offline')) {
+      console.error("Error initializing database:", error);
+    }
   }
 };
 
@@ -146,15 +162,16 @@ export const logActivity = async (actor: User | null, action: string, details: s
   }
 };
 
-/**
- * Fetches the list of colleges for user selection.
- * Filters for 'Active' status and sorts by name.
- */
 export const getColleges = async (): Promise<College[]> => {
-  const collegesRef = collection(db, 'colleges');
-  const q = query(collegesRef, where('status', '==', 'Active'), orderBy('name', 'asc'));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => mapDoc<College>(d));
+  try {
+    const collegesRef = collection(db, 'colleges');
+    const q = query(collegesRef, where('status', '==', 'Active'), orderBy('name', 'asc'));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => mapDoc<College>(d));
+  } catch (err: any) {
+    console.warn("Could not fetch colleges:", err.message);
+    return [];
+  }
 };
 
 export const getAllUsers = async (): Promise<User[]> => {
@@ -169,25 +186,29 @@ export const getSystemLogs = async (): Promise<ActivityLog[]> => {
 };
 
 export const getDataForUser = async (userId: string, role: UserRole) => {
-  const compSnap = await getDocs(collection(db, 'competitions'));
-  const competitions = compSnap.docs.map(d => mapDoc<Competition>(d));
+  try {
+    const compSnap = await getDocs(collection(db, 'competitions'));
+    const competitions = compSnap.docs.map(d => mapDoc<Competition>(d));
 
-  let announceQuery = role === UserRole.ADMIN 
-    ? query(collection(db, 'announcements'))
-    : query(collection(db, 'announcements'), where('targetRole', 'in', ['All', role]));
-  
-  const announceSnap = await getDocs(announceQuery);
-  const announcements = announceSnap.docs.map(d => mapDoc<Announcement>(d));
+    let announceQuery = role === UserRole.ADMIN 
+      ? query(collection(db, 'announcements'))
+      : query(collection(db, 'announcements'), where('targetRole', 'in', ['All', role]));
+    
+    const announceSnap = await getDocs(announceQuery);
+    const announcements = announceSnap.docs.map(d => mapDoc<Announcement>(d));
 
-  let projSnap;
-  if (role === UserRole.STUDENT) {
-    projSnap = await getDocs(query(collection(db, 'projects'), where('studentId', '==', userId)));
-  } else {
-    projSnap = await getDocs(collection(db, 'projects'));
+    let projSnap;
+    if (role === UserRole.STUDENT) {
+      projSnap = await getDocs(query(collection(db, 'projects'), where('studentId', '==', userId)));
+    } else {
+      projSnap = await getDocs(collection(db, 'projects'));
+    }
+    const projects = projSnap.docs.map(d => mapDoc<Project>(d));
+
+    return { competitions, projects, announcements };
+  } catch (e) {
+    return { competitions: [], projects: [], announcements: [] };
   }
-  const projects = projSnap.docs.map(d => mapDoc<Project>(d));
-
-  return { competitions, projects, announcements };
 };
 
 export const getUserTeams = async (userId: string): Promise<Team[]> => {
